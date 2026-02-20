@@ -65,6 +65,16 @@ npm start
 
 Without Twilio configured, you can still use the **Get Links** feature to copy/paste availability links manually.
 
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `TWILIO_ACCOUNT_SID` | No | Twilio account SID for SMS |
+| `TWILIO_AUTH_TOKEN` | No | Twilio auth token |
+| `TWILIO_FROM_NUMBER` | No | Your Twilio phone number (e.g. `+15551234567`) |
+| `BASE_URL` | No | Public URL of your app (used in SMS links) |
+| `PORT` | No | Server port (default: `3001`) |
+
 ## Usage Flow
 
 1. **Setup**: Create a Season with your line template (e.g., 4 Doubles + 1 Singles, Sundays at 1pm)
