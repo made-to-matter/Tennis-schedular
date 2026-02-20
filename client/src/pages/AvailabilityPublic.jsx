@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { availability as availApi } from '../api';
 
+const PLAYER_STORAGE_KEY = 'tennis_player_id';
+
 const formatDate = (d) => {
   if (!d) return '';
   const dt = new Date(d + 'T12:00:00');
@@ -31,36 +33,67 @@ const buildDateGroups = (lines) => {
 };
 
 export default function AvailabilityPublic() {
-  const { token } = useParams();
-  const [data, setData] = useState(null);
+  const { matchId } = useParams();
+  const [data, setData] = useState(null);         // { match, players, lines }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const [playerId, setPlayerId] = useState(null);
+  const [availLoading, setAvailLoading] = useState(false);
   const [responses, setResponses] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Load match + roster, then auto-select player from localStorage
   useEffect(() => {
-    availApi.getByToken(token)
+    availApi.getForTeam(matchId)
       .then(d => {
         setData(d);
-        // Pre-fill existing responses keyed by date group
+        const savedId = parseInt(localStorage.getItem(PLAYER_STORAGE_KEY));
+        if (savedId && d.players.find(p => p.id === savedId)) {
+          setPlayerId(savedId);
+        }
+      })
+      .catch(e => setError(e.response?.data?.error || 'Match not found.'))
+      .finally(() => setLoading(false));
+  }, [matchId]);
+
+  // When a player is selected, fetch their existing responses
+  useEffect(() => {
+    if (!playerId || !data) return;
+    setAvailLoading(true);
+    setResponses({});
+    availApi.getPlayerAvailability(matchId, playerId)
+      .then(({ availability }) => {
         const existing = {};
-        if (d.match.use_custom_dates && d.lines) {
-          const dateGroups = buildDateGroups(d.lines);
-          for (const a of d.currentAvailability) {
+        if (data.match.use_custom_dates && data.lines) {
+          const dateGroups = buildDateGroups(data.lines);
+          for (const a of availability) {
             const group = dateGroups.find(g => g.lineIds.includes(a.match_line_id));
             if (group) existing[group.key] = a.available === 1;
           }
         } else {
-          for (const a of d.currentAvailability) {
+          for (const a of availability) {
             existing['match'] = a.available === 1;
           }
         }
         setResponses(existing);
       })
-      .catch(e => setError(e.response?.data?.error || 'Link not found or expired.'))
-      .finally(() => setLoading(false));
-  }, [token]);
+      .finally(() => setAvailLoading(false));
+  }, [playerId, matchId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectPlayer = (id) => {
+    localStorage.setItem(PLAYER_STORAGE_KEY, String(id));
+    setPlayerId(id);
+    setSubmitted(false);
+    setResponses({});
+  };
+
+  const switchPlayer = () => {
+    setPlayerId(null);
+    setSubmitted(false);
+    setResponses({});
+  };
 
   const setResponse = (key, val) => setResponses(r => ({ ...r, [key]: val }));
 
@@ -77,12 +110,9 @@ export default function AvailabilityPublic() {
           }
         }
       } else {
-        responseArr = [{
-          match_line_id: null,
-          available: responses['match'] === true,
-        }];
+        responseArr = [{ match_line_id: null, available: responses['match'] === true }];
       }
-      await availApi.respondByToken(token, responseArr);
+      await availApi.respondForTeam(matchId, playerId, responseArr);
       setSubmitted(true);
     } catch (e) {
       setError(e.response?.data?.error || 'Error saving response.');
@@ -107,16 +137,54 @@ export default function AvailabilityPublic() {
     </div>
   );
 
-  const { match, player, lines } = data;
+  const { match, players, lines } = data;
+  const selectedPlayer = players.find(p => p.id === playerId);
   const useCustom = match.use_custom_dates && lines && lines.length > 0;
   const dateGroups = useCustom ? buildDateGroups(lines) : [];
 
+  // ── Player selection screen ──────────────────────────────────────────
+  if (!playerId) {
+    return (
+      <div style={{ maxWidth: 520, margin: '0 auto', padding: '20px 16px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎾</div>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 4 }}>Tennis Match Availability</h1>
+          <p style={{ color: '#718096' }}>
+            vs {match.opponent_name || 'TBD'} &middot; {formatDate(match.match_date)}
+          </p>
+        </div>
+        <div className="card">
+          <div className="card-title mb-3">Who are you?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {players.map(p => (
+              <button
+                key={p.id}
+                className="btn btn-outline"
+                style={{ justifyContent: 'center', padding: '14px 8px', fontWeight: 500, fontSize: '1rem' }}
+                onClick={() => selectPlayer(p.id)}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (availLoading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <div className="spinner" style={{ width: 32, height: 32 }} />
+    </div>
+  );
+
+  // ── Submitted confirmation ───────────────────────────────────────────
   if (submitted) return (
     <div style={{ maxWidth: 480, margin: '40px auto', padding: '0 16px' }}>
       <div style={{ textAlign: 'center', padding: 40 }}>
         <div style={{ fontSize: '3rem', marginBottom: 16 }}>🎾</div>
         <h2 style={{ marginBottom: 12, color: '#27ae60' }}>Thank you!</h2>
-        <p>Your availability has been saved, {player.name}.</p>
+        <p>Your availability has been saved, {selectedPlayer.name}.</p>
         <p className="text-muted text-sm" style={{ marginTop: 8 }}>The captain will assign players to lines and let you know.</p>
         <div className="card" style={{ marginTop: 20, textAlign: 'left' }}>
           <div className="card-title mb-2">Your Responses</div>
@@ -141,18 +209,30 @@ export default function AvailabilityPublic() {
             </div>
           )}
         </div>
-        <button className="btn btn-outline mt-4" onClick={() => setSubmitted(false)}>Update Response</button>
+        <div className="flex gap-3 mt-4" style={{ justifyContent: 'center' }}>
+          <button className="btn btn-outline" onClick={() => setSubmitted(false)}>Update Response</button>
+          <button className="btn btn-outline" onClick={switchPlayer}>Not {selectedPlayer.name}?</button>
+        </div>
       </div>
     </div>
   );
 
+  // ── Availability form ────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 520, margin: '0 auto', padding: '20px 16px' }}>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: 24 }}>
         <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎾</div>
         <h1 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: 4 }}>Tennis Match Availability</h1>
-        <p style={{ color: '#718096' }}>Hi {player.name}! Please let your captain know if you can play.</p>
+        <p style={{ color: '#718096' }}>
+          Hi {selectedPlayer.name}!{' '}
+          <button
+            onClick={switchPlayer}
+            style={{ background: 'none', border: 'none', color: '#4299e1', cursor: 'pointer', padding: 0, fontSize: 'inherit', textDecoration: 'underline' }}
+          >
+            Not you?
+          </button>
+        </p>
       </div>
 
       {/* Match Info */}
