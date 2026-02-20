@@ -4,10 +4,11 @@ const { getDb } = require('../database');
 
 function getMatchFull(db, id) {
   const match = db.prepare(`
-    SELECT m.*, o.name as opponent_name, o.address as opponent_address, s.name as season_name
+    SELECT m.*, o.name as opponent_name, o.address as opponent_address, s.name as season_name, t.name as team_name
     FROM matches m
     LEFT JOIN opponents o ON o.id = m.opponent_id
     LEFT JOIN seasons s ON s.id = m.season_id
+    LEFT JOIN teams t ON t.id = m.team_id
     WHERE m.id = ?
   `).get(id);
   if (!match) return null;
@@ -34,16 +35,29 @@ function getMatchFull(db, id) {
   return match;
 }
 
-// GET all matches
+// GET all matches (optional ?team_id= filter)
 router.get('/', (req, res) => {
   const db = getDb();
-  const matches = db.prepare(`
-    SELECT m.*, o.name as opponent_name, s.name as season_name
-    FROM matches m
-    LEFT JOIN opponents o ON o.id = m.opponent_id
-    LEFT JOIN seasons s ON s.id = m.season_id
-    ORDER BY m.match_date DESC
-  `).all();
+  const { team_id } = req.query;
+  let matches;
+  if (team_id) {
+    matches = db.prepare(`
+      SELECT m.*, o.name as opponent_name, s.name as season_name
+      FROM matches m
+      LEFT JOIN opponents o ON o.id = m.opponent_id
+      LEFT JOIN seasons s ON s.id = m.season_id
+      WHERE m.team_id = ?
+      ORDER BY m.match_date DESC
+    `).all(team_id);
+  } else {
+    matches = db.prepare(`
+      SELECT m.*, o.name as opponent_name, s.name as season_name
+      FROM matches m
+      LEFT JOIN opponents o ON o.id = m.opponent_id
+      LEFT JOIN seasons s ON s.id = m.season_id
+      ORDER BY m.match_date DESC
+    `).all();
+  }
   res.json(matches);
 });
 
@@ -59,7 +73,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   const {
     season_id, opponent_id, match_date, match_time,
-    is_home, away_address, use_custom_dates, notes, lines
+    is_home, away_address, use_custom_dates, notes, lines, team_id
   } = req.body;
 
   if (!match_date) return res.status(400).json({ error: 'match_date is required' });
@@ -67,12 +81,12 @@ router.post('/', (req, res) => {
 
   const createMatch = db.transaction(() => {
     const result = db.prepare(`
-      INSERT INTO matches (season_id, opponent_id, match_date, match_time, is_home, away_address, use_custom_dates, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO matches (season_id, opponent_id, match_date, match_time, is_home, away_address, use_custom_dates, notes, team_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       season_id || null, opponent_id || null, match_date, match_time || null,
       is_home !== undefined ? is_home : 1, away_address || null,
-      use_custom_dates ? 1 : 0, notes || null
+      use_custom_dates ? 1 : 0, notes || null, team_id || null
     );
     const matchId = result.lastInsertRowid;
 
@@ -99,18 +113,20 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   const {
     season_id, opponent_id, match_date, match_time,
-    is_home, away_address, use_custom_dates, notes, status, lines
+    is_home, away_address, use_custom_dates, notes, status, lines, team_id
   } = req.body;
   const db = getDb();
 
   const updateMatch = db.transaction(() => {
     db.prepare(`
       UPDATE matches SET season_id=?, opponent_id=?, match_date=?, match_time=?,
-      is_home=?, away_address=?, use_custom_dates=?, notes=?, status=? WHERE id=?
+      is_home=?, away_address=?, use_custom_dates=?, notes=?, status=?, team_id=? WHERE id=?
     `).run(
       season_id || null, opponent_id || null, match_date, match_time || null,
       is_home !== undefined ? is_home : 1, away_address || null,
-      use_custom_dates ? 1 : 0, notes || null, status || 'scheduled', req.params.id
+      use_custom_dates ? 1 : 0, notes || null, status || 'scheduled',
+      team_id !== undefined ? (team_id || null) : (db.prepare('SELECT team_id FROM matches WHERE id=?').get(req.params.id)?.team_id || null),
+      req.params.id
     );
 
     if (Array.isArray(lines)) {
@@ -146,7 +162,7 @@ router.post('/:id/lines/:lineId/players', (req, res) => {
     db.prepare('DELETE FROM match_line_players WHERE match_line_id = ?').run(req.params.lineId);
     const insert = db.prepare('INSERT INTO match_line_players (match_line_id, player_id, position) VALUES (?, ?, ?)');
     if (Array.isArray(player_ids)) {
-      player_ids.forEach((pid, idx) => insert.run(req.params.lineId, pid, idx + 1));
+      [...new Set(player_ids)].forEach((pid, idx) => insert.run(req.params.lineId, pid, idx + 1));
     }
   });
   assign();

@@ -2,10 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../database');
 
-// GET all seasons
+// GET all seasons (optional ?team_id= filter)
 router.get('/', (req, res) => {
   const db = getDb();
-  const seasons = db.prepare('SELECT * FROM seasons ORDER BY created_at DESC').all();
+  const { team_id } = req.query;
+  const seasons = team_id
+    ? db.prepare('SELECT * FROM seasons WHERE team_id = ? ORDER BY created_at DESC').all(team_id)
+    : db.prepare('SELECT * FROM seasons ORDER BY created_at DESC').all();
   for (const s of seasons) {
     s.line_templates = db.prepare('SELECT * FROM line_templates WHERE season_id = ? ORDER BY line_number').all(s.id);
   }
@@ -23,13 +26,13 @@ router.get('/:id', (req, res) => {
 
 // POST create season
 router.post('/', (req, res) => {
-  const { name, default_day_of_week, default_time, line_templates } = req.body;
+  const { name, default_day_of_week, default_time, line_templates, team_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const db = getDb();
 
   const createSeason = db.transaction(() => {
-    const result = db.prepare('INSERT INTO seasons (name, default_day_of_week, default_time) VALUES (?, ?, ?)').run(
-      name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null
+    const result = db.prepare('INSERT INTO seasons (name, default_day_of_week, default_time, team_id) VALUES (?, ?, ?, ?)').run(
+      name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, team_id || null
     );
     const seasonId = result.lastInsertRowid;
 

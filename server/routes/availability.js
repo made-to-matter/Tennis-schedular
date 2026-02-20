@@ -3,6 +3,74 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../database');
 
+// GET team availability page data (no auth — single shared link)
+router.get('/match/:matchId/team', (req, res) => {
+  const db = getDb();
+  const match = db.prepare(`
+    SELECT m.*, o.name as opponent_name, s.name as season_name, t.name as team_name
+    FROM matches m
+    LEFT JOIN opponents o ON o.id = m.opponent_id
+    LEFT JOIN seasons s ON s.id = m.season_id
+    LEFT JOIN teams t ON t.id = m.team_id
+    WHERE m.id = ?
+  `).get(req.params.matchId);
+  if (!match) return res.status(404).json({ error: 'Match not found' });
+
+  let players;
+  if (match.team_id) {
+    players = db.prepare(`
+      SELECT p.id, p.name FROM players p
+      JOIN team_players tp ON tp.player_id = p.id
+      WHERE tp.team_id = ? AND p.active = 1
+      ORDER BY p.name
+    `).all(match.team_id);
+  } else {
+    players = db.prepare('SELECT id, name FROM players WHERE active = 1 ORDER BY name').all();
+  }
+
+  const lines = db.prepare('SELECT * FROM match_lines WHERE match_id = ? ORDER BY line_number').all(match.id);
+
+  res.json({ match, players, lines: match.use_custom_dates ? lines : null });
+});
+
+// GET a player's current availability for a match
+router.get('/match/:matchId/player/:playerId', (req, res) => {
+  const db = getDb();
+  const availability = db.prepare(`
+    SELECT * FROM player_availability WHERE match_id = ? AND player_id = ?
+  `).all(req.params.matchId, req.params.playerId);
+  res.json({ availability });
+});
+
+// POST respond to availability (no token — player identified by player_id)
+router.post('/match/:matchId/respond', (req, res) => {
+  const { player_id, responses } = req.body;
+  const db = getDb();
+
+  const player = db.prepare('SELECT * FROM players WHERE id = ? AND active = 1').get(player_id);
+  if (!player) return res.status(404).json({ error: 'Player not found' });
+
+  const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.matchId);
+  if (!match) return res.status(404).json({ error: 'Match not found' });
+
+  const upsert = db.prepare(`
+    INSERT INTO player_availability (player_id, match_id, match_line_id, available, response_date)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(player_id, match_id, match_line_id) DO UPDATE SET
+      available=excluded.available, response_date=CURRENT_TIMESTAMP
+  `);
+
+  const saveAll = db.transaction(() => {
+    if (!Array.isArray(responses)) return;
+    for (const r of responses) {
+      upsert.run(player_id, req.params.matchId, r.match_line_id || null, r.available ? 1 : 0);
+    }
+  });
+  saveAll();
+
+  res.json({ success: true });
+});
+
 // GET availability for a match
 router.get('/match/:matchId', (req, res) => {
   const db = getDb();
@@ -80,40 +148,42 @@ router.post('/respond/:token', (req, res) => {
   res.json({ success: true, message: 'Availability saved!' });
 });
 
-// POST generate tokens and get SMS links for a match
+// POST generate team availability link + per-player SMS messages for a match
 router.post('/notify/:matchId', (req, res) => {
   const db = getDb();
   const match = db.prepare(`
-    SELECT m.*, o.name as opponent_name
-    FROM matches m LEFT JOIN opponents o ON o.id = m.opponent_id
+    SELECT m.*, o.name as opponent_name, t.name as team_name
+    FROM matches m
+    LEFT JOIN opponents o ON o.id = m.opponent_id
+    LEFT JOIN teams t ON t.id = m.team_id
     WHERE m.id = ?
   `).get(req.params.matchId);
   if (!match) return res.status(404).json({ error: 'Match not found' });
 
-  const players = db.prepare('SELECT * FROM players WHERE active = 1').all();
-  const baseUrl = req.body.base_url || process.env.BASE_URL || 'http://localhost:5173';
-
-  const links = [];
-  const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-  for (const player of players) {
-    // Check if token already exists
-    let tokenRow = db.prepare('SELECT * FROM availability_tokens WHERE player_id = ? AND match_id = ?').get(player.id, req.params.matchId);
-    if (!tokenRow) {
-      const token = uuidv4();
-      db.prepare('INSERT INTO availability_tokens (player_id, match_id, token, expires_at) VALUES (?, ?, ?, ?)').run(player.id, req.params.matchId, token, expiry);
-      tokenRow = db.prepare('SELECT * FROM availability_tokens WHERE token = ?').get(token);
-    }
-
-    const link = `${baseUrl}/availability/${tokenRow.token}`;
-    const dateStr = match.match_date;
-    const opponent = match.opponent_name || 'TBD';
-    const message = `Hi ${player.name}! Tennis match vs ${opponent} on ${dateStr}. Please indicate your availability: ${link}`;
-
-    links.push({ player, link, message, token: tokenRow.token });
+  let players;
+  if (match.team_id) {
+    players = db.prepare(`
+      SELECT p.* FROM players p
+      JOIN team_players tp ON tp.player_id = p.id
+      WHERE tp.team_id = ? AND p.active = 1
+    `).all(match.team_id);
+  } else {
+    players = db.prepare('SELECT * FROM players WHERE active = 1').all();
   }
 
-  res.json({ links });
+  const baseUrl = req.body.base_url || process.env.BASE_URL || 'http://localhost:5173';
+
+  const link = `${baseUrl}/availability/match/${req.params.matchId}`;
+  const opponent = match.opponent_name || 'TBD';
+  const dateStr = match.match_date;
+  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
+
+  const messages = players.map(player => ({
+    player,
+    message: `${teamPrefix}Hi ${player.name}! Tennis match vs ${opponent} on ${dateStr}. Mark your availability: ${link}`,
+  }));
+
+  res.json({ link, messages });
 });
 
 // POST send SMS via Twilio
@@ -150,14 +220,17 @@ router.post('/send-sms', async (req, res) => {
 router.post('/notify-assignment/:matchId', async (req, res) => {
   const db = getDb();
   const match = db.prepare(`
-    SELECT m.*, o.name as opponent_name
-    FROM matches m LEFT JOIN opponents o ON o.id = m.opponent_id
+    SELECT m.*, o.name as opponent_name, t.name as team_name
+    FROM matches m
+    LEFT JOIN opponents o ON o.id = m.opponent_id
+    LEFT JOIN teams t ON t.id = m.team_id
     WHERE m.id = ?
   `).get(req.params.matchId);
   if (!match) return res.status(404).json({ error: 'Match not found' });
 
   const lines = db.prepare('SELECT * FROM match_lines WHERE match_id = ? ORDER BY line_number').all(match.id);
   const messages = [];
+  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
 
   for (const line of lines) {
     const players = db.prepare(`
@@ -180,7 +253,7 @@ router.post('/notify-assignment/:matchId', async (req, res) => {
     for (const player of players) {
       if (!player.cell) continue;
       const partner = partnerNames && player.name !== partnerNames ? ` Partner: ${players.filter(p => p.id !== player.player_id).map(p => p.name).join(', ')}.` : '';
-      const body = `Hi ${player.name}! You're playing ${lineLabel} vs ${opponent} on ${dateStr}${timeStr ? ' at ' + timeStr : ''} (${location}).${partner} Good luck!`;
+      const body = `${teamPrefix}Hi ${player.name}! You're playing ${lineLabel} vs ${opponent} on ${dateStr}${timeStr ? ' at ' + timeStr : ''} (${location}).${partner} Good luck!`;
       messages.push({ player, body });
     }
   }

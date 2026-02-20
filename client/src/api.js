@@ -18,8 +18,19 @@ export const opponents = {
   delete: (id) => api.delete(`/opponents/${id}`).then(r => r.data),
 };
 
+export const teams = {
+  list: () => api.get('/teams').then(r => r.data),
+  create: (data) => api.post('/teams', data).then(r => r.data),
+  update: (id, data) => api.put(`/teams/${id}`, data).then(r => r.data),
+  deactivate: (id) => api.patch(`/teams/${id}/deactivate`).then(r => r.data),
+  activate: (id) => api.patch(`/teams/${id}/activate`).then(r => r.data),
+  getPlayers: (id) => api.get(`/teams/${id}/players`).then(r => r.data),
+  addPlayers: (id, player_ids) => api.post(`/teams/${id}/players`, { player_ids }).then(r => r.data),
+  removePlayer: (id, playerId) => api.delete(`/teams/${id}/players/${playerId}`).then(r => r.data),
+};
+
 export const seasons = {
-  list: () => api.get('/seasons').then(r => r.data),
+  list: (params) => api.get('/seasons', { params }).then(r => r.data),
   get: (id) => api.get(`/seasons/${id}`).then(r => r.data),
   create: (data) => api.post('/seasons', data).then(r => r.data),
   update: (id, data) => api.put(`/seasons/${id}`, data).then(r => r.data),
@@ -27,7 +38,7 @@ export const seasons = {
 };
 
 export const matches = {
-  list: () => api.get('/matches').then(r => r.data),
+  list: (params) => api.get('/matches', { params }).then(r => r.data),
   get: (id) => api.get(`/matches/${id}`).then(r => r.data),
   create: (data) => api.post('/matches', data).then(r => r.data),
   update: (id, data) => api.put(`/matches/${id}`, data).then(r => r.data),
@@ -39,8 +50,9 @@ export const matches = {
 
 export const availability = {
   forMatch: (matchId) => api.get(`/availability/match/${matchId}`).then(r => r.data),
-  getByToken: (token) => api.get(`/availability/respond/${token}`).then(r => r.data),
-  respondByToken: (token, responses) => api.post(`/availability/respond/${token}`, { responses }).then(r => r.data),
+  getForTeam: (matchId) => api.get(`/availability/match/${matchId}/team`).then(r => r.data),
+  getPlayerAvailability: (matchId, playerId) => api.get(`/availability/match/${matchId}/player/${playerId}`).then(r => r.data),
+  respondForTeam: (matchId, player_id, responses) => api.post(`/availability/match/${matchId}/respond`, { player_id, responses }).then(r => r.data),
   notifyMatch: (matchId, base_url) => api.post(`/availability/notify/${matchId}`, { base_url }).then(r => r.data),
   sendSms: (messages) => api.post('/availability/send-sms', { messages }).then(r => r.data),
   notifyAssignment: (matchId) => api.post(`/availability/notify-assignment/${matchId}`).then(r => r.data),

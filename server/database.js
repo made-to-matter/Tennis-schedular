@@ -110,7 +110,32 @@ function initSchema() {
       expires_at TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS teams (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS team_players (
+      team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
+      player_id INTEGER REFERENCES players(id) ON DELETE CASCADE,
+      PRIMARY KEY (team_id, player_id)
+    );
   `);
+
+  // Migrations: add team_id columns if they don't exist yet
+  const seasonCols = db.prepare('PRAGMA table_info(seasons)').all().map(c => c.name);
+  if (!seasonCols.includes('team_id')) {
+    db.exec('ALTER TABLE seasons ADD COLUMN team_id INTEGER REFERENCES teams(id)');
+  }
+
+  const matchCols = db.prepare('PRAGMA table_info(matches)').all().map(c => c.name);
+  if (!matchCols.includes('team_id')) {
+    db.exec('ALTER TABLE matches ADD COLUMN team_id INTEGER REFERENCES teams(id)');
+  }
 }
 
 module.exports = { getDb };

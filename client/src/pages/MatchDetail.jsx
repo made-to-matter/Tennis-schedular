@@ -14,6 +14,24 @@ const formatTime = (t) => {
   return `${hour > 12 ? hour - 12 : hour || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
 
+// Works on iOS over HTTP (no HTTPS required)
+function copyText(text) {
+  if (navigator.clipboard) {
+    return navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+  }
+  legacyCopy(text);
+  return Promise.resolve();
+}
+function legacyCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+}
+
 function Modal({ title, onClose, children, wide }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -31,9 +49,9 @@ function Modal({ title, onClose, children, wide }) {
 // Player assignment for a line
 function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
   const maxPlayers = line.line_type === 'doubles' ? 2 : 1;
-  const currentIds = line.players.map(p => p.player_id);
+  const currentIds = [...new Set(line.players.map(p => p.player_id))];
   const [selected, setSelected] = useState(currentIds);
-  const [filter, setFilter] = useState('all'); // all | available
+  const [filter, setFilter] = useState('available'); // all | available
 
   const availableIds = new Set(availability.filter(a => a.available === 1).map(a => a.player_id));
 
@@ -83,7 +101,7 @@ function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
       </div>
       <div className="modal-footer">
         <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => onSave(selected)}>Assign Players</button>
+        <button className="btn btn-primary" onClick={() => onSave([...new Set(selected)])}>Assign Players</button>
       </div>
     </>
   );
@@ -138,104 +156,171 @@ function ScoreModal({ line, onSave, onCancel }) {
   );
 }
 
-// SMS notifications modal
-function SmsModal({ links, onSend, onCancel, type }) {
-  const [sending, setSending] = useState(false);
-  const [results, setResults] = useState(null);
-  const hasCells = links.some(l => l.player?.cell || l.cell);
 
-  const handleSend = async () => {
-    setSending(true);
-    const messages = links.map(l => ({
-      to: l.player?.cell || l.cell,
-      body: l.message || l.body,
-    })).filter(m => m.to);
+// 3-column availability grid with inline captain editing
+function AvailabilityColumns({ match, players, matchId, onUpdate }) {
+  const [editing, setEditing] = useState(null); // player_id being edited
+  const [saving, setSaving] = useState(false);
+
+  const byPlayer = match.availability.reduce((acc, a) => {
+    if (!acc[a.player_id]) acc[a.player_id] = { ...a };
+    else if (a.available === 1) acc[a.player_id].available = 1;
+    return acc;
+  }, {});
+  const respondedIds = new Set(Object.keys(byPlayer).map(Number));
+  const available   = Object.values(byPlayer).filter(a => a.available === 1);
+  const unavailable = Object.values(byPlayer).filter(a => a.available !== 1);
+  const noResponse  = players.filter(p => p.active && !respondedIds.has(p.id));
+
+  const setStatus = async (playerId, availableVal) => {
+    setSaving(true);
     try {
-      const r = await onSend(messages);
-      setResults(r);
-    } catch (e) {
-      setResults({ error: e.message });
+      await availApi.respondForTeam(matchId, playerId, [{ match_line_id: null, available: availableVal }]);
+      onUpdate();
+      setEditing(null);
     } finally {
-      setSending(false);
+      setSaving(false);
     }
   };
 
-  return (
-    <>
-      <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-        {results ? (
-          <div>
-            {results.error ? (
-              <div className="alert alert-error">{results.error}</div>
-            ) : (
-              <>
-                <div className="alert alert-success">Messages sent!</div>
-                {results.results?.map((r, i) => (
-                  <div key={i} className="text-sm mb-1">
-                    {r.to}: <span className={`badge ${r.status === 'sent' ? 'badge-green' : 'badge-red'}`}>{r.status}</span>
-                    {r.error && ` — ${r.error}`}
-                  </div>
-                ))}
-              </>
-            )}
+  const PlayerRow = ({ playerId, name }) => {
+    const isEditing = editing === playerId;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
+        <span style={{ fontSize: '0.9rem' }}>{name}</span>
+        {isEditing ? (
+          <div className="flex gap-1">
+            <button className="btn btn-sm" style={{ background: '#27ae60', color: 'white', padding: '2px 8px', fontSize: '0.75rem' }} disabled={saving} onClick={() => setStatus(playerId, true)}>✓</button>
+            <button className="btn btn-sm" style={{ background: '#e53e3e', color: 'white', padding: '2px 8px', fontSize: '0.75rem' }} disabled={saving} onClick={() => setStatus(playerId, false)}>✕</button>
+            <button className="btn btn-outline btn-sm" style={{ padding: '2px 6px', fontSize: '0.75rem' }} onClick={() => setEditing(null)}>–</button>
           </div>
         ) : (
-          <>
-            {!hasCells && <div className="alert alert-warning">Some players have no cell number and won't receive SMS.</div>}
-            <div className="alert alert-info">Preview of messages to be sent ({links.length} total):</div>
-            {links.slice(0, 5).map((l, i) => (
-              <div key={i} className="mb-3">
-                <div className="text-sm text-muted mb-1">{l.player?.name || l.name} ({l.player?.cell || l.cell || 'no cell'})</div>
-                <div className="sms-preview">{l.message || l.body}</div>
-              </div>
-            ))}
-            {links.length > 5 && <p className="text-muted text-sm">...and {links.length - 5} more.</p>}
-          </>
+          <button className="btn btn-outline btn-sm" style={{ padding: '2px 8px', fontSize: '0.7rem', opacity: 0.5 }} onClick={() => setEditing(playerId)}>Edit</button>
         )}
       </div>
-      <div className="modal-footer">
-        {results ? (
-          <button className="btn btn-primary" onClick={onCancel}>Close</button>
-        ) : (
-          <>
-            <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
-            <button className="btn btn-success" onClick={handleSend} disabled={sending}>
-              {sending ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Sending...</> : `Send ${links.filter(l => l.player?.cell || l.cell).length} SMS`}
-            </button>
-          </>
-        )}
+    );
+  };
+
+  const Col = ({ label, color, items }) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color, marginBottom: 8 }}>
+        {label} ({items.length})
       </div>
-    </>
+      {items.length === 0
+        ? <div className="text-muted text-sm">—</div>
+        : items.map(p => <PlayerRow key={p.player_id || p.id} playerId={p.player_id || p.id} name={p.name} />)
+      }
+    </div>
+  );
+
+  return (
+    <div className="avail-cols">
+      <Col label="Available"     color="#27ae60" items={available}   />
+      <Col label="Not Available" color="#e53e3e" items={unavailable} />
+      <Col label="No Response"   color="#718096" items={noResponse}  />
+    </div>
   );
 }
 
-// Copy-to-clipboard link list
-function LinksModal({ links, onClose }) {
-  const [copied, setCopied] = useState(null);
-  const copy = (text, id) => {
-    navigator.clipboard.writeText(text).then(() => { setCopied(id); setTimeout(() => setCopied(null), 2000); });
+// Assignment notification — copyable lineup + group text + individual SMS links
+function AssignmentNotifyModal({ match, messages, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const [textSent, setTextSent] = useState(false);
+
+  const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
+  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
+
+  const lineLabel = (l) => {
+    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}`;
+    return `${label}: ${[...new Set(l.players.map(p => p.name))].join(' & ')}`;
   };
+
+  let lineupText;
+  if (match.use_custom_dates) {
+    const groups = [];
+    const seen = new Map();
+    for (const l of assignedLines) {
+      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
+      if (!seen.has(key)) {
+        seen.set(key, groups.length);
+        groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] });
+      } else {
+        groups[seen.get(key)].lines.push(l);
+      }
+    }
+    const parts = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'}:`];
+    for (const g of groups) {
+      const dateLabel = g.date ? formatDate(g.date) : 'Date TBD';
+      const timeLabel = g.time ? ` at ${formatTime(g.time)}` : '';
+      parts.push(`\n${dateLabel}${timeLabel}`);
+      for (const l of g.lines) parts.push(`  ${lineLabel(l)}`);
+    }
+    lineupText = parts.join('\n');
+  } else {
+    lineupText = [
+      `${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`,
+      ...assignedLines.map(lineLabel),
+    ].join('\n');
+  }
+
+  const copyLineup = () => {
+    copyText(lineupText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleGroupText = () => {
+    window.open(`sms:&body=${encodeURIComponent(lineupText)}`);
+    setTextSent(true);
+    setTimeout(() => setTextSent(false), 3000);
+  };
+
   return (
     <>
-      <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-        <div className="alert alert-info">Share these links with players. They can click to mark availability.</div>
-        {links.map((l, i) => (
-          <div key={i} className="flex items-center gap-2 mb-2 p-3 rounded border bg-gray">
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 500 }}>{l.player.name}</div>
-              <div className="text-sm text-muted" style={{ wordBreak: 'break-all' }}>{l.link}</div>
-            </div>
-            <button className="btn btn-outline btn-sm" onClick={() => copy(l.link, i)}>
-              {copied === i ? '✓ Copied' : 'Copy'}
-            </button>
-          </div>
-        ))}
+      <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+
+        {assignedLines.length === 0 && (
+          <div className="alert alert-warning">No players assigned to any lines yet.</div>
+        )}
+
+        {/* Text Team + Copy Lineup */}
+        <div className="flex gap-2" style={{ marginBottom: 20 }}>
+          <button className={`btn btn-sm ${textSent ? 'btn-success' : 'btn-primary'}`} onClick={handleGroupText}>
+            {textSent ? '✓ Opened!' : '📱 Text Team'}
+          </button>
+          <button className={`btn btn-sm ${copied ? 'btn-success' : 'btn-outline'}`} onClick={copyLineup}>
+            {copied ? '✓ Copied!' : 'Copy Lineup'}
+          </button>
+        </div>
+
+        {/* Individual texts */}
+        {messages.length > 0 && (
+          <>
+            <div className="card-title mb-2">Text Individual Players</div>
+            {messages.map((m, i) => (
+              <div key={i} className="flex items-center gap-2 p-3 rounded border mb-2" style={{ background: 'white' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500 }}>{m.player.name}</div>
+                  <div className="text-sm text-muted">{m.body}</div>
+                </div>
+                {m.player.cell ? (
+                  <a
+                    href={`sms:${m.player.cell}?body=${encodeURIComponent(m.body)}`}
+                    className="btn btn-outline btn-sm"
+                    style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
+                  >
+                    Text
+                  </a>
+                ) : (
+                  <span className="text-muted text-sm">No number</span>
+                )}
+              </div>
+            ))}
+          </>
+        )}
       </div>
       <div className="modal-footer">
-        <button className="btn btn-outline btn-sm" onClick={() => {
-          const all = links.map(l => `${l.player.name}: ${l.link}`).join('\n');
-          navigator.clipboard.writeText(all);
-        }}>Copy All</button>
         <button className="btn btn-primary" onClick={onClose}>Done</button>
       </div>
     </>
@@ -305,8 +390,9 @@ export default function MatchDetail() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [selectedLine, setSelectedLine] = useState(null);
-  const [availLinks, setAvailLinks] = useState([]);
   const [smsMessages, setSmsMessages] = useState([]);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [availTextSent, setAvailTextSent] = useState(false);
 
   const load = useCallback(async () => {
     const [m, p] = await Promise.all([matchesApi.get(id), playersApi.list()]);
@@ -333,18 +419,12 @@ export default function MatchDetail() {
     load();
   };
 
-  const handleNotifyAvailability = async () => {
-    const baseUrl = window.location.origin;
-    const res = await availApi.notifyMatch(id, baseUrl);
-    setAvailLinks(res.links);
-    setModal('links');
-  };
-
-  const handleNotifyAvailabilitySms = async () => {
-    const baseUrl = window.location.origin;
-    const res = await availApi.notifyMatch(id, baseUrl);
-    setAvailLinks(res.links);
-    setModal('avail-sms');
+  const handleCopyTeamLink = () => {
+    const link = `${window.location.origin}/availability/match/${id}`;
+    copyText(link).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    });
   };
 
   const handleNotifyAssignment = async () => {
@@ -353,24 +433,24 @@ export default function MatchDetail() {
     setModal('assign-sms');
   };
 
-  const handleSendSms = async (messages) => {
-    return await availApi.sendSms(messages);
-  };
-
   if (loading) return <div className="loading-center"><div className="spinner" /></div>;
   if (!match) return <div className="card"><p>Match not found.</p></div>;
 
   const dateStr = formatDate(match.match_date);
   const timeStr = match.match_time ? formatTime(match.match_time) : '';
 
-  const availByPlayer = {};
-  for (const a of match.availability) {
-    if (!availByPlayer[a.player_id]) availByPlayer[a.player_id] = [];
-    availByPlayer[a.player_id].push(a);
-  }
-
   const availableCount = new Set(match.availability.filter(a => a.available === 1).map(a => a.player_id)).size;
   const respondedCount = new Set(match.availability.map(a => a.player_id)).size;
+
+  const teamLink = `${window.location.origin}/availability/match/${id}`;
+  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
+  const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}: ${teamLink}`;
+
+  const handleTextTeamAvail = () => {
+    window.open(`sms:&body=${encodeURIComponent(availSmsBody)}`);
+    setAvailTextSent(true);
+    setTimeout(() => setAvailTextSent(false), 3000);
+  };
 
   return (
     <div>
@@ -383,70 +463,58 @@ export default function MatchDetail() {
 
       {/* Match Info */}
       <div className="card">
-        <div className="flex justify-between items-center">
-          <div>
-            <div className="flex gap-2 mb-2 flex-wrap">
-              <span className={`badge ${match.is_home ? 'badge-blue' : 'badge-orange'}`}>{match.is_home ? 'Home' : 'Away'}</span>
-              <span className={`badge ${match.status === 'completed' ? 'badge-green' : match.status === 'cancelled' ? 'badge-red' : 'badge-blue'}`}>{match.status}</span>
-              {match.season_name && <span className="badge badge-gray">{match.season_name}</span>}
-            </div>
-            <div style={{ fontSize: '1.05rem', marginBottom: 4 }}>
-              {dateStr}{timeStr ? ` at ${timeStr}` : ''}
-            </div>
-            {!match.is_home && match.away_address && (
-              <div className="text-muted text-sm">📍 {match.away_address}</div>
-            )}
-            {match.notes && <div className="text-muted text-sm mt-1">📝 {match.notes}</div>}
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {match.status !== 'completed' && <button className="btn btn-success btn-sm" onClick={() => handleStatusChange('completed')}>Mark Complete</button>}
-            {match.status !== 'cancelled' && <button className="btn btn-danger btn-sm" onClick={() => handleStatusChange('cancelled')}>Cancel Match</button>}
-            {match.status === 'cancelled' && <button className="btn btn-outline btn-sm" onClick={() => handleStatusChange('scheduled')}>Reschedule</button>}
-          </div>
+        <div className="flex gap-2 mb-2" style={{ flexWrap: 'wrap' }}>
+          <span className={`badge ${match.is_home ? 'badge-blue' : 'badge-orange'}`}>{match.is_home ? 'Home' : 'Away'}</span>
+          <span className={`badge ${match.status === 'completed' ? 'badge-green' : match.status === 'cancelled' ? 'badge-red' : 'badge-blue'}`}>{match.status}</span>
+          {match.season_name && <span className="badge badge-gray">{match.season_name}</span>}
+        </div>
+        <div style={{ fontSize: '1.05rem', marginBottom: 4 }}>
+          {dateStr}{timeStr ? ` at ${timeStr}` : ''}
+        </div>
+        {!match.is_home && match.away_address && (
+          <div className="text-muted text-sm">📍 {match.away_address}</div>
+        )}
+        {match.notes && <div className="text-muted text-sm mt-1">📝 {match.notes}</div>}
+        <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
+          {match.status !== 'completed' && <button className="btn btn-success btn-sm" onClick={() => handleStatusChange('completed')}>Mark Complete</button>}
+          {match.status !== 'cancelled' && (
+            <button
+              className="btn btn-sm"
+              style={{ background: 'white', color: '#e53e3e', border: '1.5px solid #e53e3e' }}
+              onClick={() => { if (confirm('Are you sure you want to cancel this match?')) handleStatusChange('cancelled'); }}
+            >
+              Cancel Match
+            </button>
+          )}
+          {match.status === 'cancelled' && <button className="btn btn-outline btn-sm" onClick={() => handleStatusChange('scheduled')}>Reschedule</button>}
         </div>
       </div>
 
       {/* Availability Section */}
       <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">Player Availability</div>
-            <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
-          </div>
-          <div className="flex gap-2">
-            <button className="btn btn-outline btn-sm" onClick={handleNotifyAvailability}>Get Links</button>
-            <button className="btn btn-primary btn-sm" onClick={handleNotifyAvailabilitySms}>Send SMS</button>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <div className="card-title">Player Availability</div>
+              <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-outline btn-sm" onClick={handleCopyTeamLink}>
+                {copiedLink ? '✓ Copied!' : 'Copy Link'}
+              </button>
+              <button className={`btn btn-sm ${availTextSent ? 'btn-success' : 'btn-primary'}`} onClick={handleTextTeamAvail}>
+                {availTextSent ? '✓ Opened!' : '📱 Text Team'}
+              </button>
+            </div>
           </div>
         </div>
 
-        {match.availability.length === 0 ? (
-          <p className="text-muted text-sm">No responses yet. Send availability links to players.</p>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Player</th><th>Status</th><th>Responded</th></tr></thead>
-              <tbody>
-                {Object.values(
-                  match.availability.reduce((acc, a) => {
-                    if (!acc[a.player_id]) acc[a.player_id] = { ...a, available: a.available };
-                    else if (a.available === 1) acc[a.player_id].available = 1;
-                    return acc;
-                  }, {})
-                ).map(a => (
-                  <tr key={a.player_id}>
-                    <td>{a.name}</td>
-                    <td>
-                      <span className={`badge ${a.available === 1 ? 'badge-green' : a.available === 0 ? 'badge-red' : 'badge-gray'}`}>
-                        {a.available === 1 ? 'Available' : a.available === 0 ? 'Unavailable' : 'No Response'}
-                      </span>
-                    </td>
-                    <td className="text-sm text-muted">{a.response_date ? new Date(a.response_date).toLocaleDateString() : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <AvailabilityColumns
+          match={match}
+          players={players}
+          matchId={id}
+          onUpdate={load}
+        />
       </div>
 
       {/* Lines Section */}
@@ -492,26 +560,9 @@ export default function MatchDetail() {
         </Modal>
       )}
 
-      {modal === 'links' && (
-        <Modal title="Availability Links" wide onClose={() => setModal(null)}>
-          <LinksModal links={availLinks} onClose={() => setModal(null)} />
-        </Modal>
-      )}
-
-      {modal === 'avail-sms' && (
-        <Modal title="Send Availability SMS" wide onClose={() => setModal(null)}>
-          <SmsModal links={availLinks} onSend={handleSendSms} onCancel={() => setModal(null)} type="avail" />
-        </Modal>
-      )}
-
       {modal === 'assign-sms' && (
-        <Modal title="Notify Team of Assignments" wide onClose={() => setModal(null)}>
-          <SmsModal
-            links={smsMessages.map(m => ({ player: m.player, cell: m.player?.cell, body: m.body }))}
-            onSend={handleSendSms}
-            onCancel={() => setModal(null)}
-            type="assign"
-          />
+        <Modal title="Notify Team" wide onClose={() => setModal(null)}>
+          <AssignmentNotifyModal match={match} messages={smsMessages} onClose={() => setModal(null)} />
         </Modal>
       )}
     </div>

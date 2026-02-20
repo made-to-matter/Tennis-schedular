@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { matches as matchesApi, seasons as seasonsApi, opponents as opponentsApi } from '../api';
+import { TeamContext } from '../App';
 
 function Modal({ title, onClose, children, wide }) {
   return (
@@ -37,7 +38,7 @@ const formatTime = (t) => {
 
 function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponent }) {
   const isEdit = !!initial;
-  const [form, setForm] = useState(initial || {
+  const [form, setForm] = useState(initial ? { ...initial, lines: initial.lines || [] } : {
     season_id: '', opponent_id: '', match_date: '', match_time: '',
     is_home: 1, away_address: '', use_custom_dates: 0, notes: '',
     lines: []
@@ -185,6 +186,7 @@ function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponen
 }
 
 export default function Schedule() {
+  const { activeTeam } = useContext(TeamContext);
   const [matchList, setMatchList] = useState([]);
   const [seasons, setSeasons] = useState([]);
   const [opponents, setOpponents] = useState([]);
@@ -194,15 +196,17 @@ export default function Schedule() {
   const [filterStatus, setFilterStatus] = useState('all');
 
   const load = async () => {
-    const [m, s, o] = await Promise.all([matchesApi.list(), seasonsApi.list(), opponentsApi.list()]);
+    const params = activeTeam ? { team_id: activeTeam.id } : {};
+    const [m, s, o] = await Promise.all([matchesApi.list(params), seasonsApi.list(params), opponentsApi.list()]);
     setMatchList(m); setSeasons(s); setOpponents(o);
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [activeTeam]);
 
   const handleSave = async (data) => {
-    if (editing) await matchesApi.update(editing.id, data);
-    else await matchesApi.create(data);
+    const payload = { ...data, team_id: activeTeam?.id || null };
+    if (editing) await matchesApi.update(editing.id, payload);
+    else await matchesApi.create(payload);
     setModal(null); setEditing(null); load();
   };
 
@@ -223,26 +227,26 @@ export default function Schedule() {
 
   const MatchCard = ({ m }) => (
     <div className="card" style={{ marginBottom: 12 }}>
-      <div className="flex justify-between items-center">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`badge ${STATUS_BADGE[m.status] || 'badge-gray'}`}>{m.status}</span>
-            <span className={`badge ${m.is_home ? 'badge-blue' : 'badge-orange'}`}>{m.is_home ? 'Home' : 'Away'}</span>
-            {m.season_name && <span className="badge badge-gray">{m.season_name}</span>}
-          </div>
-          <div style={{ fontWeight: 600, fontSize: '1rem' }}>
-            vs {m.opponent_name || <span className="text-muted">TBD</span>}
-          </div>
-          <div className="text-muted text-sm mt-1">
-            {formatDate(m.match_date)}{m.match_time ? ` at ${formatTime(m.match_time)}` : ''}
-            {!m.is_home && m.away_address ? ` — ${m.away_address}` : ''}
-          </div>
-        </div>
+      <div className="flex items-center gap-2 mb-1" style={{ flexWrap: 'wrap' }}>
+        <span className={`badge ${STATUS_BADGE[m.status] || 'badge-gray'}`}>{m.status}</span>
+        <span className={`badge ${m.is_home ? 'badge-blue' : 'badge-orange'}`}>{m.is_home ? 'Home' : 'Away'}</span>
+        {m.season_name && <span className="badge badge-gray">{m.season_name}</span>}
+      </div>
+      <div style={{ fontWeight: 600, fontSize: '1rem', marginBottom: 2 }}>
+        vs {m.opponent_name || <span className="text-muted">TBD</span>}
+      </div>
+      <div className="text-muted text-sm" style={{ marginBottom: 10 }}>
+        {formatDate(m.match_date)}{m.match_time ? ` at ${formatTime(m.match_time)}` : ''}
+        {!m.is_home && m.away_address ? ` — ${m.away_address}` : ''}
+      </div>
+      <div className="flex items-center" style={{ justifyContent: 'space-between' }}>
         <div className="flex gap-2">
           <Link to={`/matches/${m.id}`} className="btn btn-primary btn-sm">Manage</Link>
           <button className="btn btn-outline btn-sm" onClick={() => { setEditing(m); setModal('form'); }}>Edit</button>
-          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(m.id)}>Delete</button>
         </div>
+        <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '4px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
       </div>
     </div>
   );

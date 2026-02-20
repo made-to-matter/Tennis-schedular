@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { players as playersApi } from '../api';
+import { players as playersApi, teams as teamsApi } from '../api';
+import { TeamContext } from '../App';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -92,14 +93,37 @@ function BulkImportModal({ onSave, onCancel }) {
 }
 
 export default function Players() {
+  const { activeTeam } = useContext(TeamContext);
   const [playerList, setPlayerList] = useState([]);
+  const [teamPlayerIds, setTeamPlayerIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // null | 'add' | 'edit' | 'bulk'
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
 
-  const load = () => playersApi.list().then(setPlayerList).finally(() => setLoading(false));
-  useEffect(() => { load(); }, []);
+  const load = async () => {
+    const players = await playersApi.list();
+    setPlayerList(players);
+    if (activeTeam) {
+      const tp = await teamsApi.getPlayers(activeTeam.id);
+      setTeamPlayerIds(new Set(tp.map(p => p.id)));
+    } else {
+      setTeamPlayerIds(new Set());
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [activeTeam]);
+
+  const handleToggleTeam = async (player) => {
+    if (!activeTeam) return;
+    if (teamPlayerIds.has(player.id)) {
+      await teamsApi.removePlayer(activeTeam.id, player.id);
+    } else {
+      await teamsApi.addPlayers(activeTeam.id, [player.id]);
+    }
+    const tp = await teamsApi.getPlayers(activeTeam.id);
+    setTeamPlayerIds(new Set(tp.map(p => p.id)));
+  };
 
   const handleSave = async (data) => {
     if (editing) { await playersApi.update(editing.id, { ...data, active: editing.active }); }
@@ -157,6 +181,7 @@ export default function Players() {
                   <th>Email</th>
                   <th>Cell</th>
                   <th>Status</th>
+                  {activeTeam && <th>{activeTeam.name}</th>}
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -175,13 +200,29 @@ export default function Players() {
                         {p.active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
+                    {activeTeam && (
+                      <td>
+                        <button
+                          className="btn btn-sm"
+                          style={teamPlayerIds.has(p.id)
+                            ? { background: '#f0fff4', color: '#276749', border: '1px solid #68d391', fontSize: '0.75rem' }
+                            : { background: '#fff5f5', color: '#9b2c2c', border: '1px solid #fc8181', fontSize: '0.75rem' }
+                          }
+                          onClick={() => handleToggleTeam(p)}
+                        >
+                          {teamPlayerIds.has(p.id) ? '✓ On Team' : '+ Add'}
+                        </button>
+                      </td>
+                    )}
                     <td>
                       <div className="flex gap-2">
                         <button className="btn btn-outline btn-sm" onClick={() => { setEditing(p); setModal('edit'); }}>Edit</button>
                         <button className="btn btn-outline btn-sm" onClick={() => handleToggleActive(p)}>
                           {p.active ? 'Deactivate' : 'Activate'}
                         </button>
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Delete</button>
+                        <button onClick={() => handleDelete(p.id)} title="Delete player" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '4px 6px', borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
                       </div>
                     </td>
                   </tr>

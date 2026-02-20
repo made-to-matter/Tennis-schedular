@@ -10,6 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
+app.use('/api/teams', require('./routes/teams'));
 app.use('/api/players', require('./routes/players'));
 app.use('/api/opponents', require('./routes/opponents'));
 app.use('/api/seasons', require('./routes/seasons'));

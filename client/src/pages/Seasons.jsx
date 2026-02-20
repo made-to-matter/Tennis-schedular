@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { seasons as seasonsApi } from '../api';
+import { TeamContext } from '../App';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -92,17 +93,22 @@ function SeasonForm({ initial, onSave, onCancel }) {
 }
 
 export default function Seasons() {
+  const { activeTeam } = useContext(TeamContext);
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [editing, setEditing] = useState(null);
 
-  const load = () => seasonsApi.list().then(setList).finally(() => setLoading(false));
-  useEffect(() => { load(); }, []);
+  const load = () => {
+    const params = activeTeam ? { team_id: activeTeam.id } : {};
+    seasonsApi.list(params).then(setList).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [activeTeam]);
 
   const handleSave = async (data) => {
-    if (editing) await seasonsApi.update(editing.id, data);
-    else await seasonsApi.create(data);
+    const payload = { ...data, team_id: activeTeam?.id || null };
+    if (editing) await seasonsApi.update(editing.id, payload);
+    else await seasonsApi.create(payload);
     setModal(null); setEditing(null); load();
   };
 
@@ -151,7 +157,9 @@ export default function Seasons() {
               </div>
               <div className="flex gap-2">
                 <button className="btn btn-outline btn-sm" onClick={() => { setEditing(s); setModal('form'); }}>Edit</button>
-                <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}>Delete</button>
+                <button onClick={() => handleDelete(s.id)} title="Delete season" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '4px 6px', borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
               </div>
             </div>
             <div>
