@@ -14,6 +14,22 @@ const formatTime = (t) => {
   return `${hour > 12 ? hour - 12 : hour || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
 
+// Group match lines by unique date+time into "date options"
+const buildDateGroups = (lines) => {
+  const groups = [];
+  const seen = new Map();
+  for (const line of lines) {
+    const key = `${line.custom_date || ''}_${line.custom_time || ''}`;
+    if (!seen.has(key)) {
+      seen.set(key, groups.length);
+      groups.push({ key, date: line.custom_date, time: line.custom_time, lineIds: [line.id] });
+    } else {
+      groups[seen.get(key)].lineIds.push(line.id);
+    }
+  }
+  return groups;
+};
+
 export default function AvailabilityPublic() {
   const { token } = useParams();
   const [data, setData] = useState(null);
@@ -27,11 +43,18 @@ export default function AvailabilityPublic() {
     availApi.getByToken(token)
       .then(d => {
         setData(d);
-        // Pre-fill existing responses
+        // Pre-fill existing responses keyed by date group
         const existing = {};
-        for (const a of d.currentAvailability) {
-          const key = a.match_line_id || 'match';
-          existing[key] = a.available === 1;
+        if (d.match.use_custom_dates && d.lines) {
+          const dateGroups = buildDateGroups(d.lines);
+          for (const a of d.currentAvailability) {
+            const group = dateGroups.find(g => g.lineIds.includes(a.match_line_id));
+            if (group) existing[group.key] = a.available === 1;
+          }
+        } else {
+          for (const a of d.currentAvailability) {
+            existing['match'] = a.available === 1;
+          }
         }
         setResponses(existing);
       })
@@ -46,10 +69,13 @@ export default function AvailabilityPublic() {
     try {
       let responseArr = [];
       if (data.match.use_custom_dates && data.lines) {
-        responseArr = data.lines.map(l => ({
-          match_line_id: l.id,
-          available: responses[l.id] === true,
-        }));
+        const dateGroups = buildDateGroups(data.lines);
+        for (const group of dateGroups) {
+          const avail = responses[group.key] === true;
+          for (const lineId of group.lineIds) {
+            responseArr.push({ match_line_id: lineId, available: avail });
+          }
+        }
       } else {
         responseArr = [{
           match_line_id: null,
@@ -83,6 +109,7 @@ export default function AvailabilityPublic() {
 
   const { match, player, lines } = data;
   const useCustom = match.use_custom_dates && lines && lines.length > 0;
+  const dateGroups = useCustom ? buildDateGroups(lines) : [];
 
   if (submitted) return (
     <div style={{ maxWidth: 480, margin: '40px auto', padding: '0 16px' }}>
@@ -94,14 +121,14 @@ export default function AvailabilityPublic() {
         <div className="card" style={{ marginTop: 20, textAlign: 'left' }}>
           <div className="card-title mb-2">Your Responses</div>
           {useCustom ? (
-            lines.map(l => (
-              <div key={l.id} className="record-row">
+            dateGroups.map(g => (
+              <div key={g.key} className="record-row">
                 <div>
-                  <strong>{l.line_type.charAt(0).toUpperCase() + l.line_type.slice(1)} Line {l.line_number}</strong>
-                  <div className="text-sm text-muted">{l.custom_date ? formatDate(l.custom_date) : ''} {l.custom_time ? formatTime(l.custom_time) : ''}</div>
+                  <strong>{g.date ? formatDate(g.date) : 'Date TBD'}</strong>
+                  {g.time && <div className="text-sm text-muted">{formatTime(g.time)}</div>}
                 </div>
-                <span className={`badge ${responses[l.id] ? 'badge-green' : 'badge-red'}`}>
-                  {responses[l.id] ? 'Available' : 'Unavailable'}
+                <span className={`badge ${responses[g.key] ? 'badge-green' : 'badge-red'}`}>
+                  {responses[g.key] ? 'Available' : 'Unavailable'}
                 </span>
               </div>
             ))
@@ -160,28 +187,28 @@ export default function AvailabilityPublic() {
       {/* Availability Selection */}
       {useCustom ? (
         <div className="card">
-          <div className="card-title mb-2">Which lines can you play?</div>
-          <p className="text-muted text-sm mb-3">Different lines play on different dates. Check each one you're available for.</p>
-          {lines.map(l => (
-            <div key={l.id} className="line-card" style={{ marginBottom: 12 }}>
+          <div className="card-title mb-2">Which dates can you play?</div>
+          {dateGroups.length > 1 && (
+            <p className="text-muted text-sm mb-3">This match has multiple date options. Mark your availability for each.</p>
+          )}
+          {dateGroups.map(g => (
+            <div key={g.key} className="line-card" style={{ marginBottom: 12 }}>
               <div className="flex justify-between items-center mb-2">
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {l.line_type.charAt(0).toUpperCase() + l.line_type.slice(1)} Line {l.line_number}
-                  </div>
-                  {l.custom_date && <div className="text-sm text-muted">{formatDate(l.custom_date)}{l.custom_time ? ` at ${formatTime(l.custom_time)}` : ''}</div>}
+                <div style={{ fontWeight: 600 }}>
+                  {g.date ? formatDate(g.date) : 'Date TBD'}
+                  {g.time && <span style={{ fontWeight: 400, marginLeft: 6 }} className="text-muted">at {formatTime(g.time)}</span>}
                 </div>
               </div>
               <div className="flex gap-3">
                 <button
-                  className={`avail-btn avail-btn-yes${responses[l.id] === true ? ' selected' : ''}`}
-                  onClick={() => setResponse(l.id, true)}
+                  className={`avail-btn avail-btn-yes${responses[g.key] === true ? ' selected' : ''}`}
+                  onClick={() => setResponse(g.key, true)}
                 >
                   ✓ Available
                 </button>
                 <button
-                  className={`avail-btn avail-btn-no${responses[l.id] === false ? ' selected' : ''}`}
-                  onClick={() => setResponse(l.id, false)}
+                  className={`avail-btn avail-btn-no${responses[g.key] === false ? ' selected' : ''}`}
+                  onClick={() => setResponse(g.key, false)}
                 >
                   ✕ Can't Play
                 </button>
@@ -214,7 +241,7 @@ export default function AvailabilityPublic() {
       <button
         className="btn btn-primary btn-lg btn-full"
         onClick={handleSubmit}
-        disabled={submitting || (useCustom ? lines.every(l => responses[l.id] === undefined) : responses['match'] === undefined)}
+        disabled={submitting || (useCustom ? dateGroups.every(g => responses[g.key] === undefined) : responses['match'] === undefined)}
       >
         {submitting ? <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Saving...</> : 'Submit Availability'}
       </button>
