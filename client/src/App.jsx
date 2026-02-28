@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import Players from './pages/Players';
 import Schedule from './pages/Schedule';
@@ -7,7 +7,9 @@ import Seasons from './pages/Seasons';
 import PlayerRecord from './pages/PlayerRecord';
 import AvailabilityPublic from './pages/AvailabilityPublic';
 import Teams from './pages/Teams';
+import Login from './pages/Login';
 import { teams as teamsApi } from './api';
+import { supabase } from './lib/supabase';
 
 export const TeamContext = createContext({ activeTeam: null, setActiveTeam: () => {}, teams: [] });
 
@@ -95,7 +97,7 @@ function TeamSelector({ teams, activeTeam, setActiveTeam }) {
   );
 }
 
-function Nav({ teams, activeTeam, setActiveTeam }) {
+function Nav({ teams, activeTeam, setActiveTeam, userEmail, onLogout }) {
   const loc = useLocation();
   const isPublic = loc.pathname.startsWith('/availability/match/');
   if (isPublic) return null;
@@ -113,15 +115,55 @@ function Nav({ teams, activeTeam, setActiveTeam }) {
         <NavLink to="/seasons" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Seasons</NavLink>
         <NavLink to="/teams" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Teams</NavLink>
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+        {userEmail && (
+          <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.8rem', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {userEmail}
+          </span>
+        )}
+        <button
+          onClick={onLogout}
+          style={{
+            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+            borderRadius: 8, padding: '5px 12px', color: 'white', cursor: 'pointer',
+            fontSize: '0.85rem', fontWeight: 500
+          }}
+        >
+          Sign out
+        </button>
+      </div>
     </nav>
   );
 }
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [teamList, setTeamList] = useState([]);
   const [activeTeam, setActiveTeamState] = useState(null);
 
+  // Bootstrap auth session
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setAuthLoading(false);
+      if (!session) {
+        setTeamList([]);
+        setActiveTeamState(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load teams when authenticated
+  useEffect(() => {
+    if (!session) return;
     teamsApi.list().then(data => {
       setTeamList(data);
       const savedId = localStorage.getItem(LS_KEY);
@@ -129,8 +171,8 @@ export default function App() {
         const found = data.find(t => t.id === parseInt(savedId) && t.active);
         if (found) setActiveTeamState(found);
       }
-    });
-  }, []);
+    }).catch(() => {});
+  }, [session]);
 
   const setActiveTeam = (team) => {
     setActiveTeamState(team);
@@ -140,20 +182,45 @@ export default function App() {
   const refreshTeams = () => {
     teamsApi.list().then(data => {
       setTeamList(data);
-      // Keep activeTeam in sync
       if (activeTeam) {
         const updated = data.find(t => t.id === activeTeam.id);
         if (updated) setActiveTeamState(updated);
         else setActiveTeamState(null);
       }
-    });
+    }).catch(() => {});
   };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem(LS_KEY);
+  };
+
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7fafc' }}>
+        <div style={{ color: '#718096', fontSize: '1rem' }}>Loading…</div>
+      </div>
+    );
+  }
+
+  // Public availability pages skip auth entirely — handle before session check
+  const isPublicPath = window.location.pathname.startsWith('/availability/match/');
+
+  if (!session && !isPublicPath) {
+    return <Login />;
+  }
 
   return (
     <TeamContext.Provider value={{ activeTeam, setActiveTeam, teams: teamList, refreshTeams }}>
       <BrowserRouter>
         <div className="app">
-          <Nav teams={teamList} activeTeam={activeTeam} setActiveTeam={setActiveTeam} />
+          <Nav
+            teams={teamList}
+            activeTeam={activeTeam}
+            setActiveTeam={setActiveTeam}
+            userEmail={session?.user?.email}
+            onLogout={handleLogout}
+          />
           <main className="main-content">
             <Routes>
               <Route path="/" element={<Schedule />} />

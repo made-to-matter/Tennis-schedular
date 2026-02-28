@@ -1,86 +1,140 @@
 const express = require('express');
 const router = express.Router();
-const { getDb } = require('../database');
+const { query, getClient } = require('../database');
 
-// GET all seasons (optional ?team_id= filter)
-router.get('/', (req, res) => {
-  const db = getDb();
-  const { team_id } = req.query;
-  const seasons = team_id
-    ? db.prepare('SELECT * FROM seasons WHERE team_id = ? ORDER BY created_at DESC').all(team_id)
-    : db.prepare('SELECT * FROM seasons ORDER BY created_at DESC').all();
-  for (const s of seasons) {
-    s.line_templates = db.prepare('SELECT * FROM line_templates WHERE season_id = ? ORDER BY line_number').all(s.id);
+// GET all seasons (scoped to captain via teams; optional ?team_id= filter)
+router.get('/', async (req, res) => {
+  try {
+    const { team_id } = req.query;
+    let seasons;
+    if (team_id) {
+      seasons = (await query(
+        `SELECT s.* FROM seasons s
+         JOIN teams t ON t.id = s.team_id
+         WHERE s.team_id = $1 AND t.captain_id = $2
+         ORDER BY s.created_at DESC`,
+        [team_id, req.captainId]
+      )).rows;
+    } else {
+      seasons = (await query(
+        `SELECT s.* FROM seasons s
+         JOIN teams t ON t.id = s.team_id
+         WHERE t.captain_id = $1
+         ORDER BY s.created_at DESC`,
+        [req.captainId]
+      )).rows;
+    }
+    for (const s of seasons) {
+      s.line_templates = (await query(
+        'SELECT * FROM line_templates WHERE season_id = $1 ORDER BY line_number',
+        [s.id]
+      )).rows;
+    }
+    res.json(seasons);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(seasons);
 });
 
 // GET single season
-router.get('/:id', (req, res) => {
-  const db = getDb();
-  const season = db.prepare('SELECT * FROM seasons WHERE id = ?').get(req.params.id);
-  if (!season) return res.status(404).json({ error: 'Season not found' });
-  season.line_templates = db.prepare('SELECT * FROM line_templates WHERE season_id = ? ORDER BY line_number').all(season.id);
-  res.json(season);
+router.get('/:id', async (req, res) => {
+  try {
+    const season = (await query('SELECT * FROM seasons WHERE id = $1', [req.params.id])).rows[0];
+    if (!season) return res.status(404).json({ error: 'Season not found' });
+    season.line_templates = (await query(
+      'SELECT * FROM line_templates WHERE season_id = $1 ORDER BY line_number',
+      [season.id]
+    )).rows;
+    res.json(season);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST create season
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { name, default_day_of_week, default_time, line_templates, team_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
-  const db = getDb();
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
 
-  const createSeason = db.transaction(() => {
-    const result = db.prepare('INSERT INTO seasons (name, default_day_of_week, default_time, team_id) VALUES (?, ?, ?, ?)').run(
-      name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, team_id || null
+    const result = await client.query(
+      'INSERT INTO seasons (name, default_day_of_week, default_time, team_id) VALUES ($1, $2, $3, $4) RETURNING id',
+      [name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, team_id || null]
     );
-    const seasonId = result.lastInsertRowid;
+    const seasonId = result.rows[0].id;
 
     if (Array.isArray(line_templates)) {
-      const insertTemplate = db.prepare('INSERT INTO line_templates (season_id, line_number, line_type) VALUES (?, ?, ?)');
       for (const t of line_templates) {
-        insertTemplate.run(seasonId, t.line_number, t.line_type);
+        await client.query(
+          'INSERT INTO line_templates (season_id, line_number, line_type) VALUES ($1, $2, $3)',
+          [seasonId, t.line_number, t.line_type]
+        );
       }
     }
 
-    const season = db.prepare('SELECT * FROM seasons WHERE id = ?').get(seasonId);
-    season.line_templates = db.prepare('SELECT * FROM line_templates WHERE season_id = ? ORDER BY line_number').all(seasonId);
-    return season;
-  });
+    await client.query('COMMIT');
 
-  res.status(201).json(createSeason());
+    const season = (await query('SELECT * FROM seasons WHERE id = $1', [seasonId])).rows[0];
+    season.line_templates = (await query(
+      'SELECT * FROM line_templates WHERE season_id = $1 ORDER BY line_number',
+      [seasonId]
+    )).rows;
+    res.status(201).json(season);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // PUT update season
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const { name, default_day_of_week, default_time, line_templates } = req.body;
-  const db = getDb();
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
 
-  const updateSeason = db.transaction(() => {
-    db.prepare('UPDATE seasons SET name=?, default_day_of_week=?, default_time=? WHERE id=?').run(
-      name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, req.params.id
+    await client.query(
+      'UPDATE seasons SET name=$1, default_day_of_week=$2, default_time=$3 WHERE id=$4',
+      [name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, req.params.id]
     );
 
     if (Array.isArray(line_templates)) {
-      db.prepare('DELETE FROM line_templates WHERE season_id = ?').run(req.params.id);
-      const insertTemplate = db.prepare('INSERT INTO line_templates (season_id, line_number, line_type) VALUES (?, ?, ?)');
+      await client.query('DELETE FROM line_templates WHERE season_id = $1', [req.params.id]);
       for (const t of line_templates) {
-        insertTemplate.run(req.params.id, t.line_number, t.line_type);
+        await client.query(
+          'INSERT INTO line_templates (season_id, line_number, line_type) VALUES ($1, $2, $3)',
+          [req.params.id, t.line_number, t.line_type]
+        );
       }
     }
 
-    const season = db.prepare('SELECT * FROM seasons WHERE id = ?').get(req.params.id);
-    season.line_templates = db.prepare('SELECT * FROM line_templates WHERE season_id = ? ORDER BY line_number').all(req.params.id);
-    return season;
-  });
+    await client.query('COMMIT');
 
-  res.json(updateSeason());
+    const season = (await query('SELECT * FROM seasons WHERE id = $1', [req.params.id])).rows[0];
+    season.line_templates = (await query(
+      'SELECT * FROM line_templates WHERE season_id = $1 ORDER BY line_number',
+      [req.params.id]
+    )).rows;
+    res.json(season);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
-router.delete('/:id', (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM seasons WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+router.delete('/:id', async (req, res) => {
+  try {
+    await query('DELETE FROM seasons WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

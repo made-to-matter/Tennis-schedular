@@ -2,8 +2,11 @@
   "name": "tennis-schedular",
   "version": "1.0.0",
   "private": true,
+  "dependencies": {
+    "serverless-http": "^3.2.0"
+  },
   "scripts": {
-    "install:all": "npm install --prefix server && npm install --prefix client",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "dev": "npm run dev:server & npm run dev:client",
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
