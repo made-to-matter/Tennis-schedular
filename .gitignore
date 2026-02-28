@@ -6,3 +6,6 @@ server/.env
 dist/
 .DS_Store
 *.log
+
+# Local Netlify folder
+.netlify
