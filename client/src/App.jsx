@@ -36,15 +36,17 @@ function TeamSelector({ teams, activeTeam, setActiveTeam }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
+        className="team-selector-btn"
         onClick={() => setOpen(o => !o)}
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
           background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
           borderRadius: 8, padding: '5px 12px', color: 'white', cursor: 'pointer',
-          fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap'
+          fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0,
         }}
       >
-        {activeTeam ? activeTeam.name : 'All Teams'}
+        <span className="team-label-full">{activeTeam ? activeTeam.name : 'All Teams'}</span>
+        <span className="team-label-short">{activeTeam ? activeTeam.name.split(' ')[0] : 'Teams'}</span>
         <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>▾</span>
       </button>
       {open && (
