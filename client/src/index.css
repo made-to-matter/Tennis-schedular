@@ -62,6 +62,36 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 .nav-tab:hover { color: rgba(255,255,255,0.9); background: rgba(255,255,255,0.08); }
 .nav-tab.active { color: white; background: rgba(255,255,255,0.13); font-weight: 600; }
 
+/* Hamburger — hidden on desktop */
+.nav-hamburger {
+  display: none;
+  background: none; border: none; color: white; cursor: pointer;
+  padding: 8px; border-radius: 8px; margin-left: auto;
+  align-items: center; justify-content: center;
+  min-width: 44px; min-height: 44px;
+}
+.nav-hamburger:hover { background: rgba(255,255,255,0.1); }
+
+/* Mobile nav drawer — hidden on desktop, shown on mobile when React renders it */
+.nav-drawer {
+  position: sticky; top: 54px; z-index: 99;
+  background: rgba(10, 18, 35, 0.97);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-direction: column;
+  display: none; /* overridden on mobile */
+}
+.nav-drawer-item {
+  display: flex; align-items: center;
+  padding: 18px 20px;
+  color: rgba(255,255,255,0.7);
+  text-decoration: none; font-size: 1.05rem; font-weight: 500;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.15s;
+}
+.nav-drawer-item:last-child { border-bottom: none; }
+.nav-drawer-item:active { background: rgba(255,255,255,0.08); }
+.nav-drawer-item.active { color: white; font-weight: 700; border-left: 3px solid white; padding-left: 17px; }
+
 /* Cards */
 .card { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); padding: 20px; margin-bottom: 16px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -182,12 +212,13 @@ input[type=number].no-spin::-webkit-inner-spin-button, input[type=number].no-spi
 .loading-center { display: flex; justify-content: center; align-items: center; padding: 40px; }
 
 @media (max-width: 640px) {
-  /* Nav — everything must fit in one row */
-  .nav { padding: 0 8px; height: 54px; gap: 2px; }
-  .nav-brand { font-size: 0rem; gap: 0; margin-right: 2px; flex-shrink: 0; }
+  /* Nav — hamburger layout */
+  .nav { padding: 0 12px; height: 54px; gap: 6px; }
+  .nav-brand { font-size: 0rem; gap: 0; margin-right: 0; flex-shrink: 0; }
   .nav-brand-icon { font-size: 1.3rem; }
-  .nav-tabs { gap: 1px; }
-  .nav-tab { padding: 0 9px; font-size: 0.85rem; min-width: 0; }
+  .nav-tabs { display: none; }
+  .nav-hamburger { display: flex; margin-left: auto; }
+  .nav-drawer { display: flex; }
 
   /* TeamSelector: show only first word of team name */
   .team-label-full { display: none; }

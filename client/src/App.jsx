@@ -284,24 +284,52 @@ function ProfileMenu({ user, onLogout }) {
 
 function Nav({ teams, activeTeam, setActiveTeam, teamSeasons, activeSeason, setActiveSeason, user, onLogout }) {
   const loc = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
   const isPublic = loc.pathname.startsWith('/availability/match/');
+
+  // Close menu on route change
+  useEffect(() => { setMenuOpen(false); }, [loc.pathname]);
+
   if (isPublic) return null;
 
   return (
-    <nav className="nav">
-      <NavLink to="/" className="nav-brand">
-        <span className="nav-brand-icon">🎾</span>
-        Tennis Scheduler
-      </NavLink>
-      <TeamSelector teams={teams} activeTeam={activeTeam} setActiveTeam={setActiveTeam}
-        teamSeasons={teamSeasons} activeSeason={activeSeason} setActiveSeason={setActiveSeason} />
-      <div className="nav-tabs">
-        <NavLink to="/" end className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Schedule</NavLink>
-        <NavLink to="/players" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Players</NavLink>
-        <NavLink to="/teams" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Teams</NavLink>
-      </div>
-      <ProfileMenu user={user} onLogout={onLogout} />
-    </nav>
+    <>
+      <nav className="nav">
+        <NavLink to="/" className="nav-brand">
+          <span className="nav-brand-icon">🎾</span>
+          Tennis Scheduler
+        </NavLink>
+        <TeamSelector teams={teams} activeTeam={activeTeam} setActiveTeam={setActiveTeam}
+          teamSeasons={teamSeasons} activeSeason={activeSeason} setActiveSeason={setActiveSeason} />
+        {/* Desktop tabs */}
+        <div className="nav-tabs">
+          <NavLink to="/" end className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Schedule</NavLink>
+          <NavLink to="/players" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Players</NavLink>
+          <NavLink to="/teams" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Teams</NavLink>
+        </div>
+        {/* Mobile hamburger */}
+        <button
+          className="nav-hamburger"
+          onClick={() => setMenuOpen(o => !o)}
+          aria-label="Menu"
+        >
+          {menuOpen
+            ? <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            : <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          }
+        </button>
+        <ProfileMenu user={user} onLogout={onLogout} />
+      </nav>
+
+      {/* Mobile nav drawer */}
+      {menuOpen && (
+        <div className="nav-drawer">
+          <NavLink to="/" end className={({ isActive }) => `nav-drawer-item${isActive ? ' active' : ''}`}>Schedule</NavLink>
+          <NavLink to="/players" className={({ isActive }) => `nav-drawer-item${isActive ? ' active' : ''}`}>Players</NavLink>
+          <NavLink to="/teams" className={({ isActive }) => `nav-drawer-item${isActive ? ' active' : ''}`}>Teams</NavLink>
+        </div>
+      )}
+    </>
   );
 }
 
