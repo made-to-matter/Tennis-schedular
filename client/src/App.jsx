@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 
 import Players from './pages/Players';
 import Schedule from './pages/Schedule';
 import MatchDetail from './pages/MatchDetail';
-import Seasons from './pages/Seasons';
 import PlayerRecord from './pages/PlayerRecord';
 import AvailabilityPublic from './pages/AvailabilityPublic';
 import Teams from './pages/Teams';
@@ -97,7 +96,151 @@ function TeamSelector({ teams, activeTeam, setActiveTeam }) {
   );
 }
 
-function Nav({ teams, activeTeam, setActiveTeam, userEmail, onLogout }) {
+function ProfileMenu({ user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [name, setName] = useState(user?.user_metadata?.full_name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true); setMsg(null);
+    const updates = { data: { full_name: name } };
+    if (email !== user?.email) updates.email = email;
+    if (password) updates.password = password;
+    const { error } = await supabase.auth.updateUser(updates);
+    setSaving(false);
+    if (error) setMsg({ type: 'error', text: error.message });
+    else { setMsg({ type: 'ok', text: 'Saved.' }); setPassword(''); }
+  };
+
+  const initials = name
+    ? name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    : (user?.email?.[0] || '?').toUpperCase();
+
+  return (
+    <div ref={ref} style={{ position: 'relative', marginLeft: 'auto' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Profile"
+        style={{
+          width: 34, height: 34, borderRadius: '50%',
+          background: 'rgba(255,255,255,0.2)', border: '1.5px solid rgba(255,255,255,0.35)',
+          color: 'white', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {initials}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 1000,
+          background: 'white', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.15)',
+          border: '1px solid #e2e8f0', width: 260, padding: '16px',
+        }}>
+          {/* Greeting header */}
+          <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#2d3748' }}>
+              Coach {name.split(' ').filter(Boolean).slice(-1)[0] || user?.email?.split('@')[0] || '—'}
+            </div>
+          </div>
+
+          {/* Edit profile toggle */}
+          <button
+            onClick={() => { setEditOpen(o => !o); setMsg(null); }}
+            style={{
+              width: '100%', textAlign: 'left', background: 'none', border: 'none',
+              cursor: 'pointer', padding: '4px 0 10px', fontSize: '0.875rem', color: '#4a90d9',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              style={{ transform: editOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            Edit profile
+          </button>
+
+          {editOpen && (
+            <>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a0aec0', marginBottom: 4 }}>Display Name</div>
+                <input
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Your name"
+                />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a0aec0', marginBottom: 4 }}>Email</div>
+                <input
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a0aec0', marginBottom: 4 }}>New Password</div>
+                <input
+                  style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #e2e8f0', fontSize: '0.875rem', boxSizing: 'border-box' }}
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Leave blank to keep current"
+                />
+              </div>
+
+              {msg && (
+                <div style={{ fontSize: '0.8rem', marginBottom: 10, color: msg.type === 'error' ? '#e53e3e' : '#38a169' }}>
+                  {msg.text}
+                </div>
+              )}
+
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  width: '100%', padding: '8px', borderRadius: 8, border: 'none',
+                  background: '#4a90d9', color: 'white', fontWeight: 600, fontSize: '0.875rem',
+                  cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1, marginBottom: 10,
+                }}
+              >
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </>
+          )}
+
+          <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 10 }}>
+            <button
+              onClick={onLogout}
+              style={{
+                width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #e2e8f0',
+                background: 'white', color: '#718096', fontSize: '0.875rem', cursor: 'pointer',
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Nav({ teams, activeTeam, setActiveTeam, user, onLogout }) {
   const loc = useLocation();
   const isPublic = loc.pathname.startsWith('/availability/match/');
   if (isPublic) return null;
@@ -112,26 +255,9 @@ function Nav({ teams, activeTeam, setActiveTeam, userEmail, onLogout }) {
       <div className="nav-tabs">
         <NavLink to="/" end className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Schedule</NavLink>
         <NavLink to="/players" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Players</NavLink>
-        <NavLink to="/seasons" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Seasons</NavLink>
         <NavLink to="/teams" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Teams</NavLink>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
-        {userEmail && (
-          <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.8rem', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {userEmail}
-          </span>
-        )}
-        <button
-          onClick={onLogout}
-          style={{
-            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
-            borderRadius: 8, padding: '5px 12px', color: 'white', cursor: 'pointer',
-            fontSize: '0.85rem', fontWeight: 500
-          }}
-        >
-          Sign out
-        </button>
-      </div>
+      <ProfileMenu user={user} onLogout={onLogout} />
     </nav>
   );
 }
@@ -218,7 +344,7 @@ export default function App() {
             teams={teamList}
             activeTeam={activeTeam}
             setActiveTeam={setActiveTeam}
-            userEmail={session?.user?.email}
+            user={session?.user}
             onLogout={handleLogout}
           />
           <main className="main-content">
@@ -226,8 +352,7 @@ export default function App() {
               <Route path="/" element={<Schedule />} />
               <Route path="/players" element={<Players />} />
               <Route path="/players/:id" element={<PlayerRecord />} />
-              <Route path="/seasons" element={<Seasons />} />
-              <Route path="/teams" element={<Teams />} />
+<Route path="/teams" element={<Teams />} />
               <Route path="/matches/:id" element={<MatchDetail />} />
               <Route path="/availability/match/:matchId" element={<AvailabilityPublic />} />
             </Routes>

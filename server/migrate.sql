@@ -121,3 +121,9 @@ CREATE TABLE IF NOT EXISTS availability_tokens (
   expires_at TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS season_players (
+  season_id INTEGER REFERENCES seasons(id) ON DELETE CASCADE,
+  player_id INTEGER REFERENCES players(id) ON DELETE CASCADE,
+  PRIMARY KEY (season_id, player_id)
+);

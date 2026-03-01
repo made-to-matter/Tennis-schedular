@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { matches as matchesApi, players as playersApi, availability as availApi } from '../api';
 
@@ -13,6 +13,123 @@ const formatTime = (t) => {
   const hour = parseInt(h);
   return `${hour > 12 ? hour - 12 : hour || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
+
+// Shared icons
+const SmsIcon = ({ size = 15 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+);
+const CopyIcon = ({ size = 15 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+);
+const CheckIcon = ({ size = 15 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const LinkIcon = ({ size = 15 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+  </svg>
+);
+
+// Single button → dropdown with SMS + Copy options (mobile-friendly)
+function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleCopy = () => {
+    onCopy();
+    setCopied(true);
+    setTimeout(() => { setCopied(false); setOpen(false); }, 1500);
+  };
+
+  const handleSms = () => {
+    onSms();
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '7px 12px', borderRadius: 8,
+          background: 'white', border: '1px solid #e2e8f0',
+          color: '#4a5568', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {label}
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+          style={{ opacity: 0.5 }}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', [align === 'right' ? 'right' : 'left']: 0,
+          top: 'calc(100% + 6px)', zIndex: 200,
+          background: 'white', borderRadius: 12,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.14)', border: '1px solid #e2e8f0',
+          minWidth: 200, overflow: 'hidden',
+        }}>
+          {hasSms && onSms && (
+            <button
+              onClick={handleSms}
+              style={{
+                width: '100%', padding: '14px 18px', background: 'none', border: 'none',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+                fontSize: '0.95rem', color: '#2d3748', textAlign: 'left',
+                borderBottom: '1px solid #f0f0f0',
+              }}
+            >
+              <SmsIcon size={18} />
+              Text Team
+            </button>
+          )}
+          <button
+            onClick={handleCopy}
+            style={{
+              width: '100%', padding: '14px 18px', background: 'none', border: 'none',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+              fontSize: '0.95rem', color: copied ? '#38a169' : '#2d3748', textAlign: 'left',
+            }}
+          >
+            {copied ? <CheckIcon size={18} /> : <LinkIcon size={18} />}
+            {copied ? 'Copied!' : 'Copy Link'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shared icon button style
+const iconBtn = (active) => ({
+  background: 'none', border: '1px solid #e2e8f0', borderRadius: 6,
+  padding: '5px 7px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+  color: active ? '#38a169' : '#718096',
+});
 
 // Works on iOS over HTTP (no HTTPS required)
 function copyText(text) {
@@ -116,28 +233,103 @@ function ScoreModal({ line, onSave, onCancel }) {
     set3_us: existing.set3_us ?? '', set3_them: existing.set3_them ?? '',
     result: existing.result || '', notes: existing.notes || ''
   });
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const SetRow = ({ n }) => (
-    <div className="flex items-center gap-2 mb-2">
-      <span className="form-label" style={{ width: 45, marginBottom: 0, flexShrink: 0 }}>Set {n}</span>
-      <input className="form-control score-num" type="number" min="0" max="99" placeholder="Us" value={form[`set${n}_us`]} onChange={e => set(`set${n}_us`, e.target.value)} />
-      <span style={{ color: '#718096' }}>–</span>
-      <input className="form-control score-num" type="number" min="0" max="99" placeholder="Them" value={form[`set${n}_them`]} onChange={e => set(`set${n}_them`, e.target.value)} />
-    </div>
+  // Default set3 to tiebreak unless existing data looks like a set score
+  const [set3IsTiebreak, setSet3IsTiebreak] = useState(() => {
+    const u = existing.set3_us, t = existing.set3_them;
+    if (u == null || u === '') return true;
+    return (Number(u) === 0 || Number(u) === 1) && (Number(t) === 0 || Number(t) === 1);
+  });
+
+  const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const inputRefs = useRef({});
+  const fieldOrder = ['set1_us', 'set1_them', 'set2_us', 'set2_them', 'set3_us', 'set3_them'];
+
+  const advance = (key) => {
+    const idx = fieldOrder.indexOf(key);
+    if (idx < fieldOrder.length - 1) {
+      setTimeout(() => inputRefs.current[fieldOrder[idx + 1]]?.focus(), 0);
+    }
+  };
+
+  const handleInput = (key, value, isTiebreak) => {
+    if (isTiebreak && value !== '' && value !== '0' && value !== '1') return;
+    setField(key, value);
+    if (value.length >= 1) advance(key);
+  };
+
+  const set3HasBoth = form.set3_us !== '' && form.set3_them !== '';
+  const set3Invalid = set3IsTiebreak && set3HasBoth &&
+    !((form.set3_us === '1' && form.set3_them === '0') || (form.set3_us === '0' && form.set3_them === '1'));
+
+  const numStyle = () => ({
+    width: 56, textAlign: 'center', padding: '9px 4px',
+    border: '1.5px solid #cbd5e0',
+    borderRadius: 8, fontSize: '1.2rem', fontWeight: 600,
+    MozAppearance: 'textfield',
+  });
+
+  const ScoreInput = ({ field, isTiebreak = false }) => (
+    <input
+      ref={el => (inputRefs.current[field] = el)}
+      className="no-spin"
+      type="number" inputMode="numeric"
+      min={0} max={isTiebreak ? 1 : 99}
+      placeholder={field.endsWith('_us') ? 'Us' : 'Tm'}
+      value={form[field]}
+      onChange={e => handleInput(field, e.target.value, isTiebreak)}
+      style={numStyle()}
+    />
   );
+
+  const rowStyle = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 };
+  const labelStyle = { width: 48, fontWeight: 500, flexShrink: 0, fontSize: '0.9rem', color: '#4a5568' };
+  const dash = <span style={{ color: '#718096', fontWeight: 700, fontSize: '1.1rem' }}>–</span>;
 
   return (
     <>
       <div className="modal-body">
-        <p className="text-sm text-muted mb-3">{line.line_type.charAt(0).toUpperCase() + line.line_type.slice(1)} Line {line.line_number}</p>
-        <SetRow n={1} /> <SetRow n={2} /> <SetRow n={3} />
+        <p className="text-sm text-muted mb-4">{line.line_type.charAt(0).toUpperCase() + line.line_type.slice(1)} Line {line.line_number}</p>
+
+        {[1, 2].map(n => (
+          <div key={n} style={rowStyle}>
+            <span style={labelStyle}>Set {n}</span>
+            <ScoreInput field={`set${n}_us`} />
+            {dash}
+            <ScoreInput field={`set${n}_them`} />
+          </div>
+        ))}
+
+        {/* Set 3 with tiebreak/set toggle */}
+        <div style={rowStyle}>
+          <span style={labelStyle}>Set 3</span>
+          <ScoreInput field="set3_us" isTiebreak={set3IsTiebreak} />
+          {dash}
+          <ScoreInput field="set3_them" isTiebreak={set3IsTiebreak} />
+          <button
+            onClick={() => { setSet3IsTiebreak(b => !b); setField('set3_us', ''); setField('set3_them', ''); }}
+            style={{
+              padding: '5px 10px', borderRadius: 12, border: '1px solid #e2e8f0',
+              background: set3IsTiebreak ? '#ebf8ff' : 'white',
+              color: set3IsTiebreak ? '#2b6cb0' : '#718096',
+              cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap',
+            }}
+          >
+            {set3IsTiebreak ? 'Tie Breaker' : 'Set'}
+          </button>
+        </div>
+        {set3IsTiebreak && (
+          <p style={{ marginLeft: 58, fontSize: '0.72rem', color: set3Invalid ? '#d69e2e' : '#c0c9d4', marginTop: -6, marginBottom: 8 }}>
+            must be 1 or 0
+          </p>
+        )}
+
         <div className="form-group mt-3">
           <label className="form-label">Result</label>
-          <div className="flex gap-3">
+          <div className="flex gap-3" style={{ flexWrap: 'wrap' }}>
             {['win', 'loss', 'default_win', 'default_loss'].map(r => (
               <label key={r} className="form-check">
-                <input type="radio" checked={form.result === r} onChange={() => set('result', r)} />
+                <input type="radio" checked={form.result === r} onChange={() => setField('result', r)} />
                 {r.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
               </label>
             ))}
@@ -145,12 +337,12 @@ function ScoreModal({ line, onSave, onCancel }) {
         </div>
         <div className="form-group">
           <label className="form-label">Notes</label>
-          <textarea className="form-control" rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} />
+          <textarea className="form-control" rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} />
         </div>
       </div>
       <div className="modal-footer">
         <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => onSave(form)}>Save Score</button>
+        <button className="btn btn-primary" disabled={set3Invalid} onClick={() => onSave(form)}>Save Score</button>
       </div>
     </>
   );
@@ -159,8 +351,12 @@ function ScoreModal({ line, onSave, onCancel }) {
 
 // 3-column availability grid with inline captain editing
 function AvailabilityColumns({ match, players, matchId, onUpdate }) {
-  const [editing, setEditing] = useState(null); // player_id being edited
+  const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  const teamLink = `${window.location.origin}/availability/match/${matchId}`;
+  const teamPrefix = match.team_name ? `🎾 ${match.team_name} — ` : '';
+  const matchDesc = `${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}`;
 
   const byPlayer = match.availability.reduce((acc, a) => {
     if (!acc[a.player_id]) acc[a.player_id] = { ...a };
@@ -176,11 +372,8 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
     setSaving(true);
     try {
       await availApi.respondForTeam(matchId, playerId, [{ match_line_id: null, available: availableVal }]);
-      onUpdate();
-      setEditing(null);
-    } finally {
-      setSaving(false);
-    }
+      onUpdate(); setEditing(null);
+    } finally { setSaving(false); }
   };
 
   const PlayerRow = ({ playerId, name }) => {
@@ -201,6 +394,15 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
     );
   };
 
+  const remindMsg = `${teamPrefix}Please mark your availability for ${matchDesc}: ${teamLink}`;
+  const noResponseCells = noResponse.filter(p => p.cell).map(p => p.cell);
+
+  const handleRemindSms = () => {
+    const to = noResponseCells.join(',');
+    window.open(`sms:${to}?body=${encodeURIComponent(remindMsg)}`);
+  };
+  const handleRemindCopy = () => { copyText(teamLink); };
+
   const Col = ({ label, color, items }) => (
     <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color, marginBottom: 8 }}>
@@ -217,7 +419,20 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
     <div className="avail-cols">
       <Col label="Available"     color="#27ae60" items={available}   />
       <Col label="Not Available" color="#e53e3e" items={unavailable} />
-      <Col label="No Response"   color="#718096" items={noResponse}  />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <span style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096' }}>
+            No Response ({noResponse.length})
+          </span>
+          {noResponse.length > 0 && (
+            <ShareMenu label="Remind" onSms={handleRemindSms} onCopy={handleRemindCopy} hasSms={noResponseCells.length > 0} align="left" />
+          )}
+        </div>
+        {noResponse.length === 0
+          ? <div className="text-muted text-sm">—</div>
+          : noResponse.map(p => <PlayerRow key={p.id} playerId={p.id} name={p.name} />)
+        }
+      </div>
     </div>
   );
 }
@@ -284,36 +499,50 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
           <div className="alert alert-warning">No players assigned to any lines yet.</div>
         )}
 
-        {/* Text Team + Copy Lineup */}
-        <div className="flex gap-2" style={{ marginBottom: 20 }}>
-          <button className={`btn btn-sm ${textSent ? 'btn-success' : 'btn-primary'}`} onClick={handleGroupText}>
-            {textSent ? '✓ Opened!' : '📱 Text Team'}
+        {/* Lineup preview */}
+        <pre style={{
+          background: '#f7fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+          padding: '12px 14px', fontSize: '0.85rem', whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word', color: '#2d3748', marginBottom: 14, fontFamily: 'inherit',
+        }}>
+          {lineupText}
+        </pre>
+
+        {/* Send actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+          <button onClick={handleGroupText} title="Text lineup to team" style={iconBtn(textSent)}>
+            {textSent ? <CheckIcon /> : <SmsIcon />}
           </button>
-          <button className={`btn btn-sm ${copied ? 'btn-success' : 'btn-outline'}`} onClick={copyLineup}>
-            {copied ? '✓ Copied!' : 'Copy Lineup'}
+          <button onClick={copyLineup} title={copied ? 'Copied!' : 'Copy lineup text'} style={iconBtn(copied)}>
+            {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
+          <span style={{ fontSize: '0.78rem', color: '#a0aec0' }}>
+            {textSent ? 'Opened SMS…' : copied ? 'Copied!' : 'Text or copy lineup'}
+          </span>
         </div>
 
-        {/* Individual texts */}
+        {/* Per-player messages */}
         {messages.length > 0 && (
           <>
-            <div className="card-title mb-2">Text Individual Players</div>
+            <div style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a0aec0', marginBottom: 10 }}>
+              Per-Player Messages
+            </div>
             {messages.map((m, i) => (
-              <div key={i} className="flex items-center gap-2 p-3 rounded border mb-2" style={{ background: 'white' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 500 }}>{m.player.name}</div>
-                  <div className="text-sm text-muted">{m.body}</div>
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderTop: '1px solid #f0f0f0' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 2 }}>{m.player.name}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#718096', lineHeight: 1.4 }}>{m.body}</div>
                 </div>
                 {m.player.cell ? (
                   <a
                     href={`sms:${m.player.cell}?body=${encodeURIComponent(m.body)}`}
-                    className="btn btn-outline btn-sm"
-                    style={{ whiteSpace: 'nowrap', textDecoration: 'none' }}
+                    style={{ ...iconBtn(false), flexShrink: 0, textDecoration: 'none' }}
+                    title={`Text ${m.player.name}`}
                   >
-                    Text
+                    <SmsIcon />
                   </a>
                 ) : (
-                  <span className="text-muted text-sm">No number</span>
+                  <span style={{ fontSize: '0.75rem', color: '#cbd5e0', flexShrink: 0 }}>no #</span>
                 )}
               </div>
             ))}
@@ -391,8 +620,6 @@ export default function MatchDetail() {
   const [modal, setModal] = useState(null);
   const [selectedLine, setSelectedLine] = useState(null);
   const [smsMessages, setSmsMessages] = useState([]);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [availTextSent, setAvailTextSent] = useState(false);
 
   const load = useCallback(async () => {
     const [m, p] = await Promise.all([matchesApi.get(id), playersApi.list()]);
@@ -421,10 +648,7 @@ export default function MatchDetail() {
 
   const handleCopyTeamLink = () => {
     const link = `${window.location.origin}/availability/match/${id}`;
-    copyText(link).then(() => {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
-    });
+    copyText(link);
   };
 
   const handleNotifyAssignment = async () => {
@@ -446,10 +670,41 @@ export default function MatchDetail() {
   const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
   const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}: ${teamLink}`;
 
+  // Build lineup text (same logic as AssignmentNotifyModal)
+  const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
+  const lineLabel = (l) => {
+    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}`;
+    return `${label}: ${[...new Set(l.players.map(p => p.name))].join(' & ')}`;
+  };
+  let lineupText;
+  if (match.use_custom_dates) {
+    const groups = [];
+    const seen = new Map();
+    for (const l of assignedLines) {
+      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
+      if (!seen.has(key)) { seen.set(key, groups.length); groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] }); }
+      else groups[seen.get(key)].lines.push(l);
+    }
+    const parts = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'}:`];
+    for (const g of groups) {
+      parts.push(`\n${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
+      for (const l of g.lines) parts.push(`  ${lineLabel(l)}`);
+    }
+    lineupText = parts.join('\n');
+  } else {
+    lineupText = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`, ...assignedLines.map(lineLabel)].join('\n');
+  }
+
   const handleTextTeamAvail = () => {
     window.open(`sms:&body=${encodeURIComponent(availSmsBody)}`);
-    setAvailTextSent(true);
-    setTimeout(() => setAvailTextSent(false), 3000);
+  };
+
+  const handleTextLineup = () => {
+    window.open(`sms:&body=${encodeURIComponent(lineupText)}`);
+  };
+
+  const handleCopyLineup = () => {
+    copyText(lineupText);
   };
 
   return (
@@ -498,14 +753,7 @@ export default function MatchDetail() {
               <div className="card-title">Player Availability</div>
               <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
             </div>
-            <div className="flex gap-2">
-              <button className="btn btn-outline btn-sm" onClick={handleCopyTeamLink}>
-                {copiedLink ? '✓ Copied!' : 'Copy Link'}
-              </button>
-              <button className={`btn btn-sm ${availTextSent ? 'btn-success' : 'btn-primary'}`} onClick={handleTextTeamAvail}>
-                {availTextSent ? '✓ Opened!' : '📱 Text Team'}
-              </button>
-            </div>
+            <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} />
           </div>
         </div>
 
@@ -521,7 +769,7 @@ export default function MatchDetail() {
       <div className="card">
         <div className="card-header">
           <div className="card-title">Lines & Assignments</div>
-          <button className="btn btn-primary btn-sm" onClick={handleNotifyAssignment}>Notify Team</button>
+          <ShareMenu label="Send Line-ups" onSms={handleTextLineup} onCopy={handleCopyLineup} />
         </div>
         {match.lines.length === 0 ? (
           <p className="text-muted text-sm">No lines configured for this match.</p>
@@ -561,7 +809,7 @@ export default function MatchDetail() {
       )}
 
       {modal === 'assign-sms' && (
-        <Modal title="Notify Team" wide onClose={() => setModal(null)}>
+        <Modal title="Send Line-ups" wide onClose={() => setModal(null)}>
           <AssignmentNotifyModal match={match} messages={smsMessages} onClose={() => setModal(null)} />
         </Modal>
       )}

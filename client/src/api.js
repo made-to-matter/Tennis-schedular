@@ -45,6 +45,9 @@ export const seasons = {
   create: (data) => api.post('/seasons', data).then(r => r.data),
   update: (id, data) => api.put(`/seasons/${id}`, data).then(r => r.data),
   delete: (id) => api.delete(`/seasons/${id}`).then(r => r.data),
+  getPlayers: (id) => api.get(`/seasons/${id}/players`).then(r => r.data),
+  addPlayers: (id, player_ids) => api.post(`/seasons/${id}/players`, { player_ids }).then(r => r.data),
+  removePlayer: (id, playerId) => api.delete(`/seasons/${id}/players/${playerId}`).then(r => r.data),
 };
 
 export const matches = {

@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { players as playersApi, teams as teamsApi } from '../api';
+import { players as playersApi, seasons as seasonsApi } from '../api';
 import { TeamContext } from '../App';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -95,34 +95,52 @@ function BulkImportModal({ onSave, onCancel }) {
 export default function Players() {
   const { activeTeam } = useContext(TeamContext);
   const [playerList, setPlayerList] = useState([]);
-  const [teamPlayerIds, setTeamPlayerIds] = useState(new Set());
+  const [teamSeasons, setTeamSeasons] = useState([]);
+  const [selectedSeason, setSelectedSeason] = useState(null);
+  const [seasonPlayerIds, setSeasonPlayerIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState(null); // null | 'add' | 'edit' | 'bulk'
+  const [modal, setModal] = useState(null);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
+
+  const loadSeasonPlayers = async (season) => {
+    if (!season) { setSeasonPlayerIds(new Set()); return; }
+    const sp = await seasonsApi.getPlayers(season.id);
+    setSeasonPlayerIds(new Set(sp.map(p => p.id)));
+  };
 
   const load = async () => {
     const players = await playersApi.list();
     setPlayerList(players);
     if (activeTeam) {
-      const tp = await teamsApi.getPlayers(activeTeam.id);
-      setTeamPlayerIds(new Set(tp.map(p => p.id)));
+      const seasons = await seasonsApi.list({ team_id: activeTeam.id });
+      setTeamSeasons(seasons);
+      const season = seasons[0] || null;
+      setSelectedSeason(season);
+      await loadSeasonPlayers(season);
     } else {
-      setTeamPlayerIds(new Set());
+      setTeamSeasons([]);
+      setSelectedSeason(null);
+      setSeasonPlayerIds(new Set());
     }
     setLoading(false);
   };
   useEffect(() => { load(); }, [activeTeam]);
 
-  const handleToggleTeam = async (player) => {
-    if (!activeTeam) return;
-    if (teamPlayerIds.has(player.id)) {
-      await teamsApi.removePlayer(activeTeam.id, player.id);
+  const handleSeasonChange = async (seasonId) => {
+    const season = teamSeasons.find(s => s.id === parseInt(seasonId)) || null;
+    setSelectedSeason(season);
+    await loadSeasonPlayers(season);
+  };
+
+  const handleToggleSeason = async (player) => {
+    if (!selectedSeason) return;
+    if (seasonPlayerIds.has(player.id)) {
+      await seasonsApi.removePlayer(selectedSeason.id, player.id);
     } else {
-      await teamsApi.addPlayers(activeTeam.id, [player.id]);
+      await seasonsApi.addPlayers(selectedSeason.id, [player.id]);
     }
-    const tp = await teamsApi.getPlayers(activeTeam.id);
-    setTeamPlayerIds(new Set(tp.map(p => p.id)));
+    await loadSeasonPlayers(selectedSeason);
   };
 
   const handleSave = async (data) => {
@@ -181,7 +199,23 @@ export default function Players() {
                   <th>Email</th>
                   <th>Cell</th>
                   <th>Status</th>
-                  {activeTeam && <th>{activeTeam.name}</th>}
+                  {activeTeam && (
+                    <th>
+                      {teamSeasons.length === 0 ? (
+                        <span className="text-muted" style={{ fontWeight: 400, fontSize: '0.8rem' }}>No seasons</span>
+                      ) : teamSeasons.length === 1 ? (
+                        <span>{teamSeasons[0].name}</span>
+                      ) : (
+                        <select
+                          value={selectedSeason?.id || ''}
+                          onChange={e => handleSeasonChange(e.target.value)}
+                          style={{ fontSize: '0.85rem', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 6px', cursor: 'pointer' }}
+                        >
+                          {teamSeasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      )}
+                    </th>
+                  )}
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -202,16 +236,20 @@ export default function Players() {
                     </td>
                     {activeTeam && (
                       <td>
-                        <button
-                          className="btn btn-sm"
-                          style={teamPlayerIds.has(p.id)
-                            ? { background: '#f0fff4', color: '#276749', border: '1px solid #68d391', fontSize: '0.75rem' }
-                            : { background: '#fff5f5', color: '#9b2c2c', border: '1px solid #fc8181', fontSize: '0.75rem' }
-                          }
-                          onClick={() => handleToggleTeam(p)}
-                        >
-                          {teamPlayerIds.has(p.id) ? '✓ On Team' : '+ Add'}
-                        </button>
+                        {selectedSeason ? (
+                          <button
+                            className="btn btn-sm"
+                            style={seasonPlayerIds.has(p.id)
+                              ? { background: '#f0fff4', color: '#276749', border: '1px solid #68d391', fontSize: '0.75rem' }
+                              : { background: 'white', color: '#718096', border: '1px solid #e2e8f0', fontSize: '0.75rem' }
+                            }
+                            onClick={() => handleToggleSeason(p)}
+                          >
+                            {seasonPlayerIds.has(p.id) ? '✓ In Season' : '+ Add to Season'}
+                          </button>
+                        ) : (
+                          <span className="text-muted text-sm">—</span>
+                        )}
                       </td>
                     )}
                     <td>
