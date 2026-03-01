@@ -236,10 +236,10 @@ export default function Schedule() {
         <div style={{ fontWeight: 600, fontSize: '1rem' }}>
           vs {m.opponent_name || <span className="text-muted">TBD</span>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
           <Link to={`/matches/${m.id}`} className="btn btn-primary btn-sm">Manage</Link>
           <button className="btn btn-outline btn-sm" onClick={() => { setEditing(m); setModal('form'); }}>Edit</button>
-          <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '4px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}>
+          <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '6px', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 36, justifyContent: 'center' }}>
             <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           </button>
         </div>
@@ -254,15 +254,16 @@ export default function Schedule() {
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h1 className="page-title" style={{ marginBottom: 0 }}>Match Schedule</h1>
-        <button className="btn btn-primary" onClick={() => { setEditing(null); setModal('form'); }}>+ New Match</button>
+        <h1 className="page-title" style={{ marginBottom: 0 }}>Schedule</h1>
+        <button className="btn btn-primary btn-sm" onClick={() => { setEditing(null); setModal('form'); }}>+ New Match</button>
       </div>
 
-      <div className="card" style={{ padding: '12px 16px' }}>
-        <div className="flex gap-2 items-center">
-          <span className="text-sm" style={{ color: '#718096' }}>Filter:</span>
+      <div className="card" style={{ padding: '10px 14px' }}>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
           {['all', 'scheduled', 'completed', 'cancelled'].map(s => (
-            <button key={s} className={`btn btn-sm ${filterStatus === s ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilterStatus(s)}>
+            <button key={s} className={`btn btn-sm ${filterStatus === s ? 'btn-primary' : 'btn-outline'}`}
+              style={{ flexShrink: 0 }}
+              onClick={() => setFilterStatus(s)}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
