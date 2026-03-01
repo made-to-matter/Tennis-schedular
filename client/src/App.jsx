@@ -38,7 +38,7 @@ function TeamSelector({ teams, activeTeam, setActiveTeam, teamSeasons, activeSea
   const activeTeams = teams.filter(t => t.active);
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       <button
         className="team-selector-btn"
         onClick={() => setOpen(o => !o)}
@@ -62,7 +62,7 @@ function TeamSelector({ teams, activeTeam, setActiveTeam, teamSeasons, activeSea
         <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>▾</span>
       </button>
       {open && (
-        <div style={{
+        <div className="team-selector-dropdown" style={{
           position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 1000,
           background: 'white', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
           minWidth: 180, overflow: 'hidden', border: '1px solid #e2e8f0'
@@ -170,7 +170,7 @@ function ProfileMenu({ user, onLogout }) {
     : (user?.email?.[0] || '?').toUpperCase();
 
   return (
-    <div ref={ref} style={{ position: 'relative', marginLeft: 'auto' }}>
+    <div ref={ref} className="profile-menu-desktop" style={{ position: 'relative', marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
       <button
         onClick={() => setOpen(o => !o)}
         title="Profile"
@@ -285,7 +285,34 @@ function ProfileMenu({ user, onLogout }) {
 function Nav({ teams, activeTeam, setActiveTeam, teamSeasons, activeSeason, setActiveSeason, user, onLogout }) {
   const loc = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profilePassword, setProfilePassword] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState(null);
   const isPublic = loc.pathname.startsWith('/availability/match/');
+
+  // Sync form with user when menu opens
+  useEffect(() => {
+    if (menuOpen) {
+      setProfileName(user?.user_metadata?.full_name || '');
+      setProfileEmail(user?.email || '');
+      setProfilePassword('');
+      setProfileMsg(null);
+    }
+  }, [menuOpen, user]);
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true); setProfileMsg(null);
+    const updates = { data: { full_name: profileName } };
+    if (profileEmail !== user?.email) updates.email = profileEmail;
+    if (profilePassword) updates.password = profilePassword;
+    const { error } = await supabase.auth.updateUser(updates);
+    setProfileSaving(false);
+    if (error) setProfileMsg({ type: 'error', text: error.message });
+    else { setProfileMsg({ type: 'ok', text: 'Saved.' }); setProfilePassword(''); }
+  };
 
   // Close menu on route change
   useEffect(() => { setMenuOpen(false); }, [loc.pathname]);
@@ -327,6 +354,66 @@ function Nav({ teams, activeTeam, setActiveTeam, teamSeasons, activeSeason, setA
           <NavLink to="/" end className={({ isActive }) => `nav-drawer-item${isActive ? ' active' : ''}`}>Schedule</NavLink>
           <NavLink to="/players" className={({ isActive }) => `nav-drawer-item${isActive ? ' active' : ''}`}>Players</NavLink>
           <NavLink to="/teams" className={({ isActive }) => `nav-drawer-item${isActive ? ' active' : ''}`}>Teams</NavLink>
+          <div className="nav-drawer-profile">
+            <div className="nav-drawer-profile-name">
+              {user?.user_metadata?.full_name || user?.email?.split('@')[0] || ''}
+            </div>
+            <button
+              className="nav-drawer-item nav-drawer-signout"
+              style={{ justifyContent: 'space-between' }}
+              onClick={() => { setEditProfileOpen(o => !o); setProfileMsg(null); }}
+            >
+              <span>Edit profile</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>{editProfileOpen ? '▴' : '▾'}</span>
+            </button>
+            {editProfileOpen && (
+              <div style={{ padding: '4px 20px 16px', background: 'rgba(255,255,255,0.04)' }}>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Display Name</div>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)', color: 'white', fontSize: 16, boxSizing: 'border-box' }}
+                    value={profileName}
+                    onChange={e => setProfileName(e.target.value)}
+                    placeholder="Your name"
+                  />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>Email</div>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)', color: 'white', fontSize: 16, boxSizing: 'border-box' }}
+                    type="email"
+                    value={profileEmail}
+                    onChange={e => setProfileEmail(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>New Password</div>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.07)', color: 'white', fontSize: 16, boxSizing: 'border-box' }}
+                    type="password"
+                    value={profilePassword}
+                    onChange={e => setProfilePassword(e.target.value)}
+                    placeholder="Leave blank to keep current"
+                  />
+                </div>
+                {profileMsg && (
+                  <div style={{ fontSize: '0.85rem', marginBottom: 10, color: profileMsg.type === 'error' ? '#fc8181' : '#68d391' }}>
+                    {profileMsg.text}
+                  </div>
+                )}
+                <button
+                  onClick={handleSaveProfile}
+                  disabled={profileSaving}
+                  style={{ width: '100%', padding: '11px', borderRadius: 8, border: 'none', background: '#1a5276', color: 'white', fontWeight: 600, fontSize: '1rem', cursor: profileSaving ? 'default' : 'pointer', opacity: profileSaving ? 0.7 : 1 }}
+                >
+                  {profileSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            )}
+            <button className="nav-drawer-item nav-drawer-signout" onClick={() => { onLogout(); setMenuOpen(false); }}>
+              Sign out
+            </button>
+          </div>
         </div>
       )}
     </>

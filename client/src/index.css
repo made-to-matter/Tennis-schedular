@@ -91,6 +91,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helv
 .nav-drawer-item:last-child { border-bottom: none; }
 .nav-drawer-item:active { background: rgba(255,255,255,0.08); }
 .nav-drawer-item.active { color: white; font-weight: 700; border-left: 3px solid white; padding-left: 17px; }
+.nav-drawer-profile { border-top: 1px solid rgba(255,255,255,0.1); margin-top: 8px; }
+.nav-drawer-profile-name { padding: 12px 20px 4px; color: rgba(255,255,255,0.4); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.nav-drawer-signout { background: none; border: none; cursor: pointer; width: 100%; text-align: left; display: flex; align-items: center; }
 
 /* Cards */
 .card { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); padding: 20px; margin-bottom: 16px; }
@@ -219,6 +222,10 @@ input[type=number].no-spin::-webkit-inner-spin-button, input[type=number].no-spi
   .nav-tabs { display: none; }
   .nav-hamburger { display: flex; margin-left: auto; }
   .nav-drawer { display: flex; }
+  /* Hide desktop profile avatar — profile/logout lives in the drawer on mobile */
+  .profile-menu-desktop { display: none !important; }
+  /* Center the team selector dropdown below the nav */
+  .team-selector-dropdown { position: fixed !important; top: 54px !important; left: 50% !important; transform: translateX(-50%) !important; min-width: 260px !important; margin-top: 0 !important; }
 
   /* TeamSelector: show only first word of team name */
   .team-label-full { display: none; }

@@ -233,27 +233,28 @@ export default function Schedule() {
   const past = filtered.filter(m => !(m.match_date >= new Date().toISOString().slice(0, 10) && m.status === 'scheduled'));
 
   const MatchCard = ({ m }) => (
-    <div className="card" style={{ marginBottom: 12 }}>
-      <div className="flex items-center gap-2 mb-1" style={{ flexWrap: 'wrap' }}>
+    <div className="card match-card" style={{ marginBottom: 12, padding: '14px 16px' }}>
+      {/* Badges */}
+      <div className="flex items-center gap-2 mb-2" style={{ flexWrap: 'wrap' }}>
         <span className={`badge ${STATUS_BADGE[m.status] || 'badge-gray'}`}>{m.status}</span>
         <span className={`badge ${m.is_home ? 'badge-blue' : 'badge-orange'}`}>{m.is_home ? 'Home' : 'Away'}</span>
         {m.season_name && <span className="badge badge-gray">{m.season_name}</span>}
       </div>
-      <div className="flex items-center" style={{ justifyContent: 'space-between', marginBottom: 2 }}>
-        <div style={{ fontWeight: 600, fontSize: '1rem' }}>
-          vs {m.opponent_name || <span className="text-muted">TBD</span>}
-        </div>
-        <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
-          <Link to={`/matches/${m.id}`} className="btn btn-primary btn-sm">Manage</Link>
-          <button className="btn btn-outline btn-sm" onClick={() => { setEditing(m); setModal('form'); }}>Edit</button>
-          <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '6px', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 36, justifyContent: 'center' }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-          </button>
-        </div>
+      {/* Opponent name — full width, no competition */}
+      <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: 2 }}>
+        vs {m.opponent_name || <span className="text-muted" style={{ fontWeight: 400 }}>TBD</span>}
       </div>
-      <div className="text-muted text-sm">
+      <div className="text-muted text-sm" style={{ marginBottom: 12 }}>
         {formatDate(m.match_date)}{m.match_time ? ` at ${formatTime(m.match_time)}` : ''}
         {!m.is_home && m.away_address ? ` — ${m.away_address}` : ''}
+      </div>
+      {/* Action row — Manage stretches, Edit and delete are compact */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #f0f4f8', paddingTop: 12 }}>
+        <Link to={`/matches/${m.id}`} className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }}>Manage</Link>
+        <button className="btn btn-outline btn-sm" style={{ flexShrink: 0 }} onClick={() => { setEditing(m); setModal('form'); }}>Edit</button>
+        <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: '1px solid #e2e8f0', cursor: 'pointer', color: '#fc8181', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, flexShrink: 0 }}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
       </div>
     </div>
   );
