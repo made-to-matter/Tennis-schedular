@@ -43,7 +43,7 @@ const LinkIcon = ({ size = 15 }) => (
 );
 
 // Single button → dropdown with SMS + Copy options (mobile-friendly)
-function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true }) {
+function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef(null);
@@ -66,15 +66,16 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true }) {
   };
 
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+    <div ref={ref} style={{ position: 'relative', display: fullWidth ? 'block' : 'inline-block' }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          width: fullWidth ? '100%' : undefined,
           padding: '7px 12px', borderRadius: 8,
           background: 'white', border: '1px solid #e2e8f0',
           color: '#4a5568', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500,
-          whiteSpace: 'nowrap',
+          whiteSpace: 'nowrap', minHeight: 38,
         }}
       >
         {label}
@@ -556,7 +557,7 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
   );
 }
 
-function LineCard({ line, allPlayers, availability, matchId, onAssign, onScore, onLineUpdate, useCustomDates }) {
+function LineCard({ line, allPlayers, availability, matchId, match, onAssign, onScore, onLineUpdate, useCustomDates }) {
   const getScoreSummary = (score) => {
     if (!score) return null;
     const sets = [];
@@ -566,48 +567,72 @@ function LineCard({ line, allPlayers, availability, matchId, onAssign, onScore, 
     return sets.join(', ');
   };
 
+  // Build reminder message for assigned players in this line
+  const assignedDetails = line.players.map(p => allPlayers.find(ap => ap.id === p.player_id)).filter(Boolean);
+  const lineCells = assignedDetails.map(p => p.cell).filter(Boolean);
+  const lineLabel = `${line.line_type.charAt(0).toUpperCase() + line.line_type.slice(1)} Line ${line.line_number}`;
+  const lineDate = useCustomDates && line.custom_date ? line.custom_date : match?.match_date;
+  const lineTime = useCustomDates && line.custom_time ? line.custom_time : match?.match_time;
+  const teamPrefix = match?.team_name ? `🎾 ${match.team_name}\n\n` : '';
+  const reminderMsg = `${teamPrefix}Reminder: You're playing ${lineLabel} vs ${match?.opponent_name || 'TBD'} on ${lineDate ? formatDate(lineDate) : 'TBD'}${lineTime ? ` at ${formatTime(lineTime)}` : ''}.`;
+
+  const handleReminderSms = () => window.open(`sms:${lineCells.join(',')}?body=${encodeURIComponent(reminderMsg)}`);
+  const handleReminderCopy = () => copyText(reminderMsg);
+
   return (
-    <div className="line-card">
-      <div className="line-card-header">
-        <div>
-          <div style={{ fontWeight: 600 }}>
-            {line.line_type.charAt(0).toUpperCase() + line.line_type.slice(1)} Line {line.line_number}
+    <div className="line-card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+      {/* Left: title, date, players, score — all stacked tightly */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{lineLabel}</div>
+        {!!useCustomDates && (
+          <div className="text-muted text-sm" style={{ marginBottom: 6 }}>
+            {line.custom_date ? formatDate(line.custom_date) : 'No date set'}
+            {line.custom_time ? ` at ${formatTime(line.custom_time)}` : ''}
           </div>
-          {useCustomDates && (
-            <div className="text-muted text-sm">
-              {line.custom_date ? formatDate(line.custom_date) : 'No date set'}
-              {line.custom_time ? ` at ${formatTime(line.custom_time)}` : ''}
-            </div>
+        )}
+        <div style={{ marginBottom: line.score ? 8 : 0 }}>
+          {line.players.length === 0 ? (
+            <span className="text-muted text-sm">No players assigned</span>
+          ) : (
+            line.players.map(p => (
+              <Link key={p.id} to={`/players/${p.player_id}`} className="player-chip" style={{ textDecoration: 'none' }}>
+                👤 {p.name}
+              </Link>
+            ))
           )}
         </div>
-        <div className="flex gap-2">
-          <button className="btn btn-outline btn-sm" onClick={() => onAssign(line)}>Assign Players</button>
-          <button className="btn btn-outline btn-sm" onClick={() => onScore(line)}>
-            {line.score ? 'Update Score' : 'Enter Score'}
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-2">
-        {line.players.length === 0 ? (
-          <span className="text-muted text-sm">No players assigned</span>
-        ) : (
-          line.players.map(p => (
-            <Link key={p.id} to={`/players/${p.player_id}`} className="player-chip" style={{ textDecoration: 'none' }}>
-              👤 {p.name}
-            </Link>
-          ))
+        {line.score && (
+          <div className="flex items-center gap-2">
+            <span className={`badge ${line.score.result === 'win' || line.score.result === 'default_win' ? 'badge-green' : 'badge-red'}`}>
+              {line.score.result?.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            </span>
+            {getScoreSummary(line.score) && <span className="text-sm text-muted">{getScoreSummary(line.score)}</span>}
+          </div>
         )}
       </div>
 
-      {line.score && (
-        <div className="flex items-center gap-2">
-          <span className={`badge ${line.score.result === 'win' || line.score.result === 'default_win' ? 'badge-green' : 'badge-red'}`}>
-            {line.score.result?.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-          </span>
-          {getScoreSummary(line.score) && <span className="text-sm text-muted">{getScoreSummary(line.score)}</span>}
-        </div>
-      )}
+      {/* Right: action buttons stacked */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140, flexShrink: 0 }}>
+        <button
+          className={`btn btn-sm w-full ${line.players.length > 0 ? 'btn-outline' : 'btn-success'}`}
+          onClick={() => onAssign(line)}
+        >
+          {line.players.length > 0 ? 'Edit Players' : 'Assign Players'}
+        </button>
+        <button className="btn btn-primary btn-sm w-full" onClick={() => onScore(line)}>
+          {line.score ? 'Update Score' : 'Enter Score'}
+        </button>
+        {line.players.length > 0 && (
+          <ShareMenu
+            label="Send Reminder"
+            onSms={lineCells.length > 0 ? handleReminderSms : null}
+            onCopy={handleReminderCopy}
+            hasSms={lineCells.length > 0}
+            align="right"
+            fullWidth
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -781,6 +806,7 @@ export default function MatchDetail() {
               allPlayers={players}
               availability={match.availability}
               matchId={id}
+              match={match}
               onAssign={handleAssign}
               onScore={handleScore}
               useCustomDates={match.use_custom_dates}
