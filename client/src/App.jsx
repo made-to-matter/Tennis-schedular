@@ -7,14 +7,18 @@ import PlayerRecord from './pages/PlayerRecord';
 import AvailabilityPublic from './pages/AvailabilityPublic';
 import Teams from './pages/Teams';
 import Login from './pages/Login';
-import { teams as teamsApi } from './api';
+import { teams as teamsApi, seasons as seasonsApi } from './api';
 import { supabase } from './lib/supabase';
 
-export const TeamContext = createContext({ activeTeam: null, setActiveTeam: () => {}, teams: [] });
+export const TeamContext = createContext({
+  activeTeam: null, setActiveTeam: () => {}, teams: [],
+  activeSeason: null, setActiveSeason: () => {}, teamSeasons: [],
+  refreshTeams: () => {},
+});
 
 const LS_KEY = 'tennis_active_team_id';
 
-function TeamSelector({ teams, activeTeam, setActiveTeam }) {
+function TeamSelector({ teams, activeTeam, setActiveTeam, teamSeasons, activeSeason, setActiveSeason }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
@@ -47,6 +51,14 @@ function TeamSelector({ teams, activeTeam, setActiveTeam }) {
       >
         <span className="team-label-full">{activeTeam ? activeTeam.name : 'All Teams'}</span>
         <span className="team-label-short">{activeTeam ? activeTeam.name.split(' ')[0] : 'Teams'}</span>
+        {activeSeason && (
+          <span style={{
+            background: 'rgba(255,255,255,0.2)', borderRadius: 9999,
+            padding: '1px 7px', fontSize: '0.72rem', fontWeight: 500, marginLeft: 2,
+          }}>
+            {activeSeason.name}
+          </span>
+        )}
         <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>▾</span>
       </button>
       {open && (
@@ -82,6 +94,34 @@ function TeamSelector({ teams, activeTeam, setActiveTeam }) {
                   {t.name} {activeTeam?.id === t.id && '✓'}
                 </div>
               ))}
+            </div>
+          )}
+          {activeTeam && teamSeasons.length > 0 && (
+            <div style={{ borderTop: '1px solid #e2e8f0', padding: '10px 14px' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#a0aec0', marginBottom: 8 }}>
+                Season
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {teamSeasons.map(s => {
+                  const isActive = activeSeason?.id === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => { setActiveSeason(s); setOpen(false); }}
+                      style={{
+                        padding: '5px 12px', borderRadius: 9999,
+                        border: `1.5px solid ${isActive ? '#1a5276' : '#e2e8f0'}`,
+                        background: isActive ? '#1a5276' : 'white',
+                        color: isActive ? 'white' : '#4a5568',
+                        fontSize: '0.85rem', fontWeight: isActive ? 600 : 400,
+                        cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
           <div style={{ borderTop: '1px solid #e2e8f0' }}>
@@ -242,7 +282,7 @@ function ProfileMenu({ user, onLogout }) {
   );
 }
 
-function Nav({ teams, activeTeam, setActiveTeam, user, onLogout }) {
+function Nav({ teams, activeTeam, setActiveTeam, teamSeasons, activeSeason, setActiveSeason, user, onLogout }) {
   const loc = useLocation();
   const isPublic = loc.pathname.startsWith('/availability/match/');
   if (isPublic) return null;
@@ -253,7 +293,8 @@ function Nav({ teams, activeTeam, setActiveTeam, user, onLogout }) {
         <span className="nav-brand-icon">🎾</span>
         Tennis Scheduler
       </NavLink>
-      <TeamSelector teams={teams} activeTeam={activeTeam} setActiveTeam={setActiveTeam} />
+      <TeamSelector teams={teams} activeTeam={activeTeam} setActiveTeam={setActiveTeam}
+        teamSeasons={teamSeasons} activeSeason={activeSeason} setActiveSeason={setActiveSeason} />
       <div className="nav-tabs">
         <NavLink to="/" end className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Schedule</NavLink>
         <NavLink to="/players" className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}>Players</NavLink>
@@ -269,6 +310,8 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [teamList, setTeamList] = useState([]);
   const [activeTeam, setActiveTeamState] = useState(null);
+  const [activeSeason, setActiveSeasonState] = useState(null);
+  const [teamSeasons, setTeamSeasons] = useState([]);
 
   // Bootstrap auth session
   useEffect(() => {
@@ -302,10 +345,25 @@ export default function App() {
     }).catch(() => {});
   }, [session]);
 
+  // Load seasons when active team changes
+  useEffect(() => {
+    if (!activeTeam || !session) { setTeamSeasons([]); setActiveSeasonState(null); return; }
+    seasonsApi.list({ team_id: activeTeam.id }).then(seasons => {
+      setTeamSeasons(seasons);
+      setActiveSeasonState(prev => {
+        if (prev && seasons.find(s => s.id === prev.id)) return prev;
+        return seasons[0] || null;
+      });
+    }).catch(() => {});
+  }, [activeTeam, session]);
+
   const setActiveTeam = (team) => {
     setActiveTeamState(team);
+    setActiveSeasonState(null);
     localStorage.setItem(LS_KEY, team ? team.id : '');
   };
+
+  const setActiveSeason = (season) => setActiveSeasonState(season);
 
   const refreshTeams = () => {
     teamsApi.list().then(data => {
@@ -339,13 +397,16 @@ export default function App() {
   }
 
   return (
-    <TeamContext.Provider value={{ activeTeam, setActiveTeam, teams: teamList, refreshTeams }}>
+    <TeamContext.Provider value={{ activeTeam, setActiveTeam, teams: teamList, refreshTeams, activeSeason, setActiveSeason, teamSeasons }}>
       <BrowserRouter>
         <div className="app">
           <Nav
             teams={teamList}
             activeTeam={activeTeam}
             setActiveTeam={setActiveTeam}
+            teamSeasons={teamSeasons}
+            activeSeason={activeSeason}
+            setActiveSeason={setActiveSeason}
             user={session?.user}
             onLogout={handleLogout}
           />
