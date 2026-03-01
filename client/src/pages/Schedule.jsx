@@ -58,13 +58,20 @@ function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponen
   };
 
   const addLine = () => {
-    const next = form.lines.length > 0 ? Math.max(...form.lines.map(l => l.line_number)) + 1 : 1;
+    const same = form.lines.filter(l => l.line_type === 'doubles');
+    const next = same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
     set('lines', [...form.lines, { line_number: next, line_type: 'doubles', custom_date: '', custom_time: '' }]);
   };
 
   const updateLine = (idx, field, val) => {
     const updated = [...form.lines];
-    updated[idx] = { ...updated[idx], [field]: field === 'line_number' ? parseInt(val) : val };
+    if (field === 'line_type') {
+      const same = updated.filter((l, i) => i !== idx && l.line_type === val);
+      const newNum = same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
+      updated[idx] = { ...updated[idx], line_type: val, line_number: newNum };
+    } else {
+      updated[idx] = { ...updated[idx], [field]: field === 'line_number' ? parseInt(val) : val };
+    }
     set('lines', updated);
   };
 

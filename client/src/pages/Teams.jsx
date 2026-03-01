@@ -101,13 +101,22 @@ function SeasonForm({ initial, onSave, onCancel }) {
   );
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const nextNumForType = (type, exclude = -1) => {
+    const same = form.line_templates.filter((l, i) => i !== exclude && l.line_type === type);
+    return same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
+  };
   const addLine = () => {
-    const next = (form.line_templates.length > 0 ? Math.max(...form.line_templates.map(l => l.line_number)) : 0) + 1;
-    set('line_templates', [...form.line_templates, { line_number: next, line_type: 'doubles' }]);
+    set('line_templates', [...form.line_templates, { line_number: nextNumForType('doubles'), line_type: 'doubles' }]);
   };
   const updateLine = (idx, field, val) => {
     const updated = [...form.line_templates];
-    updated[idx] = { ...updated[idx], [field]: field === 'line_number' ? parseInt(val) : val };
+    if (field === 'line_type') {
+      const same = updated.filter((l, i) => i !== idx && l.line_type === val);
+      const newNum = same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
+      updated[idx] = { ...updated[idx], line_type: val, line_number: newNum };
+    } else {
+      updated[idx] = { ...updated[idx], [field]: field === 'line_number' ? parseInt(val) : val };
+    }
     set('line_templates', updated);
   };
   const removeLine = (idx) => set('line_templates', form.line_templates.filter((_, i) => i !== idx));
