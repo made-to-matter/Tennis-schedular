@@ -32,7 +32,14 @@ router.get('/match/:matchId/team', async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
 
     let players;
-    if (match.team_id) {
+    if (match.season_id) {
+      players = (await query(`
+        SELECT p.id, p.name FROM players p
+        JOIN season_players sp ON sp.player_id = p.id
+        WHERE sp.season_id = $1 AND p.active = 1
+        ORDER BY p.name
+      `, [match.season_id])).rows;
+    } else if (match.team_id) {
       players = (await query(`
         SELECT p.id, p.name FROM players p
         JOIN team_players tp ON tp.player_id = p.id
@@ -200,7 +207,13 @@ router.post('/notify/:matchId', async (req, res) => {
     if (!match) return res.status(404).json({ error: 'Match not found' });
 
     let players;
-    if (match.team_id) {
+    if (match.season_id) {
+      players = (await query(`
+        SELECT p.* FROM players p
+        JOIN season_players sp ON sp.player_id = p.id
+        WHERE sp.season_id = $1 AND p.active = 1
+      `, [match.season_id])).rows;
+    } else if (match.team_id) {
       players = (await query(`
         SELECT p.* FROM players p
         JOIN team_players tp ON tp.player_id = p.id
