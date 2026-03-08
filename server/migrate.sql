@@ -127,3 +127,7 @@ CREATE TABLE IF NOT EXISTS season_players (
   player_id INTEGER REFERENCES players(id) ON DELETE CASCADE,
   PRIMARY KEY (season_id, player_id)
 );
+
+-- Add season scoring defaults (run once on existing DB)
+ALTER TABLE seasons ADD COLUMN IF NOT EXISTS num_sets INTEGER DEFAULT 3;
+ALTER TABLE seasons ADD COLUMN IF NOT EXISTS last_set_tiebreak BOOLEAN DEFAULT TRUE;

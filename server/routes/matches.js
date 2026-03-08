@@ -4,7 +4,7 @@ const { query, getClient } = require('../database');
 
 async function getMatchFull(id) {
   const matchResult = await query(`
-    SELECT m.*, o.name as opponent_name, o.address as opponent_address, s.name as season_name, t.name as team_name
+    SELECT m.*, o.name as opponent_name, o.address as opponent_address, s.name as season_name, s.num_sets as season_num_sets, s.last_set_tiebreak as season_last_set_tiebreak, t.name as team_name
     FROM matches m
     LEFT JOIN opponents o ON o.id = m.opponent_id
     LEFT JOIN seasons s ON s.id = m.season_id

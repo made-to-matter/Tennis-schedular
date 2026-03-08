@@ -97,7 +97,7 @@ function TeamForm({ initial, onSave, onCancel }) {
 
 function SeasonForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(
-    initial || { name: '', default_day_of_week: 0, default_time: '13:00', line_templates: [] }
+    initial || { name: '', default_day_of_week: 0, default_time: '13:00', num_sets: 3, last_set_tiebreak: true, line_templates: [] }
   );
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -141,6 +141,22 @@ function SeasonForm({ initial, onSave, onCancel }) {
           </div>
         </div>
         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16, marginTop: 4 }}>
+          <div className="grid-2" style={{ marginBottom: 12 }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Sets Per Match</label>
+              <select className="form-control" value={form.num_sets ?? 3} onChange={e => set('num_sets', parseInt(e.target.value))}>
+                <option value={2}>2 Sets</option>
+                <option value={3}>3 Sets</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Last Set</label>
+              <select className="form-control" value={form.last_set_tiebreak ? 'tiebreak' : 'fullset'} onChange={e => set('last_set_tiebreak', e.target.value === 'tiebreak')}>
+                <option value="tiebreak">Tie Breaker</option>
+                <option value="fullset">Full Set</option>
+              </select>
+            </div>
+          </div>
           <div className="flex justify-between items-center mb-2">
             <span className="section-title" style={{ marginBottom: 0 }}>Line Template</span>
             <button className="btn btn-outline btn-sm" onClick={addLine}>+ Add Line</button>
@@ -149,18 +165,23 @@ function SeasonForm({ initial, onSave, onCancel }) {
             These lines are used as defaults when creating matches for this season.
           </div>
           {form.line_templates.length === 0 && <p className="text-muted text-sm">No lines configured.</p>}
-          {form.line_templates.map((line, idx) => (
-            <div key={idx} className="flex gap-2 items-center mb-2">
+          {[...form.line_templates.map((line, idx) => ({ ...line, _idx: idx }))]
+            .sort((a, b) => {
+              if (a.line_type !== b.line_type) return a.line_type === 'singles' ? -1 : 1;
+              return a.line_number - b.line_number;
+            })
+            .map(line => (
+            <div key={line._idx} className="flex gap-2 items-center mb-2">
               <div style={{ flex: 1 }}>
-                <input className="form-control" type="number" min="1" value={line.line_number} onChange={e => updateLine(idx, 'line_number', e.target.value)} placeholder="Line #" />
+                <input className="form-control" type="number" min="1" value={line.line_number} onChange={e => updateLine(line._idx, 'line_number', e.target.value)} placeholder="Line #" />
               </div>
               <div style={{ flex: 2 }}>
-                <select className="form-control" value={line.line_type} onChange={e => updateLine(idx, 'line_type', e.target.value)}>
-                  <option value="doubles">Doubles</option>
+                <select className="form-control" value={line.line_type} onChange={e => updateLine(line._idx, 'line_type', e.target.value)}>
                   <option value="singles">Singles</option>
+                  <option value="doubles">Doubles</option>
                 </select>
               </div>
-              <button className="btn btn-danger btn-sm" onClick={() => removeLine(idx)}>✕</button>
+              <button className="btn btn-danger btn-sm" onClick={() => removeLine(line._idx)}>✕</button>
             </div>
           ))}
         </div>

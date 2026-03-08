@@ -145,32 +145,37 @@ function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponen
             <button className="btn btn-outline btn-sm" onClick={addLine}>+ Add Line</button>
           </div>
           {form.lines.length === 0 && <p className="text-muted text-sm">No lines. Add lines or select a season with a template.</p>}
-          {form.lines.map((line, idx) => (
-            <div key={idx} className="line-card">
+          {[...form.lines.map((line, idx) => ({ ...line, _idx: idx }))]
+            .sort((a, b) => {
+              if (a.line_type !== b.line_type) return a.line_type === 'singles' ? -1 : 1;
+              return a.line_number - b.line_number;
+            })
+            .map(line => (
+            <div key={line._idx} className="line-card">
               <div className="flex gap-2 items-center">
                 <div style={{ flex: '0 0 80px' }}>
                   <label className="form-label">Line #</label>
-                  <input className="form-control" type="number" min="1" value={line.line_number} onChange={e => updateLine(idx, 'line_number', e.target.value)} />
+                  <input className="form-control" type="number" min="1" value={line.line_number} onChange={e => updateLine(line._idx, 'line_number', e.target.value)} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label className="form-label">Type</label>
-                  <select className="form-control" value={line.line_type} onChange={e => updateLine(idx, 'line_type', e.target.value)}>
-                    <option value="doubles">Doubles</option>
+                  <select className="form-control" value={line.line_type} onChange={e => updateLine(line._idx, 'line_type', e.target.value)}>
                     <option value="singles">Singles</option>
+                    <option value="doubles">Doubles</option>
                   </select>
                 </div>
                 {form.use_custom_dates && <>
                   <div style={{ flex: 1 }}>
                     <label className="form-label">Date</label>
-                    <input className="form-control" type="date" value={line.custom_date || ''} onChange={e => updateLine(idx, 'custom_date', e.target.value)} />
+                    <input className="form-control" type="date" value={line.custom_date || ''} onChange={e => updateLine(line._idx, 'custom_date', e.target.value)} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <label className="form-label">Time</label>
-                    <input className="form-control" type="time" value={line.custom_time || ''} onChange={e => updateLine(idx, 'custom_time', e.target.value)} />
+                    <input className="form-control" type="time" value={line.custom_time || ''} onChange={e => updateLine(line._idx, 'custom_time', e.target.value)} />
                   </div>
                 </>}
                 <div style={{ flex: '0 0 auto', alignSelf: 'flex-end' }}>
-                  <button className="btn btn-danger btn-sm" onClick={() => removeLine(idx)}>✕</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => removeLine(line._idx)}>✕</button>
                 </div>
               </div>
             </div>
@@ -193,7 +198,7 @@ function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponen
 }
 
 export default function Schedule() {
-  const { activeTeam } = useContext(TeamContext);
+  const { activeTeam, activeSeason } = useContext(TeamContext);
   const [matchList, setMatchList] = useState([]);
   const [seasons, setSeasons] = useState([]);
   const [opponents, setOpponents] = useState([]);
@@ -208,7 +213,7 @@ export default function Schedule() {
     setMatchList(m); setSeasons(s); setOpponents(o);
     setLoading(false);
   };
-  useEffect(() => { load(); }, [activeTeam]);
+  useEffect(() => { load(); }, [activeTeam, activeSeason]);
 
   const handleSave = async (data) => {
     const payload = { ...data, team_id: activeTeam?.id || null };
@@ -228,7 +233,10 @@ export default function Schedule() {
     return o;
   };
 
-  const filtered = matchList.filter(m => filterStatus === 'all' || m.status === filterStatus);
+  const filtered = matchList.filter(m =>
+    (!activeSeason || m.season_id == null || String(m.season_id) === String(activeSeason.id)) &&
+    (filterStatus === 'all' || m.status === filterStatus)
+  );
   const upcoming = filtered.filter(m => m.match_date >= new Date().toISOString().slice(0, 10) && m.status === 'scheduled');
   const past = filtered.filter(m => !(m.match_date >= new Date().toISOString().slice(0, 10) && m.status === 'scheduled'));
 
@@ -280,7 +288,7 @@ export default function Schedule() {
 
       {loading ? (
         <div className="loading-center"><div className="spinner" /></div>
-      ) : matchList.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="card">
           <div className="empty-state">
             <div className="empty-state-icon">🗓️</div>

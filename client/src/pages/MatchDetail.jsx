@@ -43,7 +43,7 @@ const LinkIcon = ({ size = 15 }) => (
 );
 
 // Single button → dropdown with SMS + Copy options (mobile-friendly)
-function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false }) {
+function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef(null);
@@ -73,8 +73,10 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           width: fullWidth ? '100%' : undefined,
           padding: '7px 12px', borderRadius: 8,
-          background: 'white', border: '1px solid #e2e8f0',
-          color: '#4a5568', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500,
+          background: variant === 'green' ? '#38a169' : variant === 'yellow' ? '#d69e2e' : 'white',
+          border: variant === 'green' ? '1px solid #38a169' : variant === 'yellow' || variant === 'yellow-outline' ? '1.5px solid #d69e2e' : '1px solid #e2e8f0',
+          color: variant === 'green' ? 'white' : variant === 'yellow' ? 'white' : variant === 'yellow-outline' ? '#b7791f' : '#4a5568',
+          cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500,
           whiteSpace: 'nowrap', minHeight: 38,
         }}
       >
@@ -165,7 +167,7 @@ function Modal({ title, onClose, children, wide }) {
 }
 
 // Player assignment for a line
-function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
+function AssignModal({ line, allPlayers, availability, matchLines, onSave, onCancel }) {
   const maxPlayers = line.line_type === 'doubles' ? 2 : 1;
   const currentIds = [...new Set(line.players.map(p => p.player_id))];
   const [selected, setSelected] = useState(currentIds);
@@ -173,7 +175,15 @@ function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
 
   const availableIds = new Set(availability.filter(a => a.available === 1).map(a => a.player_id));
 
+  // Players assigned to OTHER lines in this match (excluding current line's current players)
+  const otherLinePlayerIds = new Set(
+    (matchLines || [])
+      .filter(l => l.id !== line.id)
+      .flatMap(l => l.players.map(p => p.player_id))
+  );
+
   const toggle = (id) => {
+    if (otherLinePlayerIds.has(id)) return; // blocked
     if (selected.includes(id)) {
       setSelected(prev => prev.filter(x => x !== id));
     } else if (selected.length < maxPlayers) {
@@ -182,7 +192,7 @@ function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
   };
 
   const displayPlayers = filter === 'available'
-    ? allPlayers.filter(p => availableIds.has(p.id))
+    ? allPlayers.filter(p => availableIds.has(p.id) || otherLinePlayerIds.has(p.id))
     : allPlayers;
 
   return (
@@ -202,16 +212,25 @@ function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
           {displayPlayers.filter(p => p.active).map(p => {
             const isSelected = selected.includes(p.id);
             const isAvail = availableIds.has(p.id);
+            const isAssigned = otherLinePlayerIds.has(p.id);
             return (
               <div key={p.id} className="flex items-center gap-2 p-3 rounded border mb-2"
-                style={{ background: isSelected ? '#ebf8ff' : 'white', borderColor: isSelected ? '#4299e1' : '#e2e8f0', cursor: 'pointer' }}
+                style={{
+                  background: isAssigned ? '#f7fafc' : isSelected ? '#ebf8ff' : 'white',
+                  borderColor: isSelected ? '#4299e1' : '#e2e8f0',
+                  cursor: isAssigned ? 'not-allowed' : 'pointer',
+                  opacity: isAssigned ? 0.6 : 1,
+                }}
                 onClick={() => toggle(p.id)}>
-                <input type="checkbox" checked={isSelected} onChange={() => toggle(p.id)} />
+                <input type="checkbox" checked={isSelected} disabled={isAssigned} onChange={() => toggle(p.id)} />
                 <div style={{ flex: 1 }}>
                   <strong>{p.name}</strong>
                   {p.cell && <span className="text-muted text-sm" style={{ marginLeft: 8 }}>{p.cell}</span>}
                 </div>
-                {isAvail && <span className="badge badge-green">Available</span>}
+                {isAssigned
+                  ? <span className="badge badge-gray">Already Assigned</span>
+                  : isAvail && <span className="badge badge-green">Available</span>
+                }
               </div>
             );
           })}
@@ -226,7 +245,7 @@ function AssignModal({ line, allPlayers, availability, onSave, onCancel }) {
 }
 
 // Score entry for a line
-function ScoreModal({ line, onSave, onCancel }) {
+function ScoreModal({ line, match, onSave, onCancel }) {
   const existing = line.score || {};
   const [form, setForm] = useState({
     set1_us: existing.set1_us ?? '', set1_them: existing.set1_them ?? '',
@@ -235,16 +254,45 @@ function ScoreModal({ line, onSave, onCancel }) {
     result: existing.result || '', notes: existing.notes || ''
   });
 
-  // Default set3 to tiebreak unless existing data looks like a set score
+  const numSets = match?.season_num_sets ?? 3;
+  const seasonTiebreak = match?.season_last_set_tiebreak !== undefined ? !!match.season_last_set_tiebreak : true;
+
+  // Default set3 tiebreak: use season setting if no existing data, else detect from scores
   const [set3IsTiebreak, setSet3IsTiebreak] = useState(() => {
     const u = existing.set3_us, t = existing.set3_them;
-    if (u == null || u === '') return true;
+    if (u == null || u === '') return seasonTiebreak;
     return (Number(u) === 0 || Number(u) === 1) && (Number(t) === 0 || Number(t) === 1);
   });
+  const [hideSet3, setHideSet3] = useState(numSets < 3);
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const inputRefs = useRef({});
+  const notesRef = useRef(null);
   const fieldOrder = ['set1_us', 'set1_them', 'set2_us', 'set2_them', 'set3_us', 'set3_them'];
+
+  // Smart detection: auto-set result and skip set 3 when sets 1 & 2 determine a winner
+  useEffect(() => {
+    const s1u = form.set1_us, s1t = form.set1_them;
+    const s2u = form.set2_us, s2t = form.set2_them;
+    if (s1u === '' || s1t === '' || s2u === '' || s2t === '') return;
+    const weWon1 = Number(s1u) > Number(s1t);
+    const weWon2 = Number(s2u) > Number(s2t);
+    if (weWon1 && weWon2) {
+      setForm(f => ({ ...f, result: 'win', set3_us: '', set3_them: '' }));
+      setHideSet3(true);
+      setTimeout(() => notesRef.current?.focus(), 50);
+    } else if (!weWon1 && !weWon2) {
+      setForm(f => ({ ...f, result: 'loss', set3_us: '', set3_them: '' }));
+      setHideSet3(true);
+      setTimeout(() => notesRef.current?.focus(), 50);
+    } else if (numSets < 3) {
+      // Split in 2-set match — hide set 3, let user pick result
+      setHideSet3(true);
+      setTimeout(() => notesRef.current?.focus(), 50);
+    } else {
+      setHideSet3(false);
+    }
+  }, [form.set1_us, form.set1_them, form.set2_us, form.set2_them]);
 
   const advance = (key) => {
     const idx = fieldOrder.indexOf(key);
@@ -259,8 +307,29 @@ function ScoreModal({ line, onSave, onCancel }) {
     if (value.length >= 1) advance(key);
   };
 
+  // Auto-detect result when tiebreak set 3 is complete
+  useEffect(() => {
+    if (!set3IsTiebreak || hideSet3) return;
+    if (form.set3_us === '1' && form.set3_them === '0') {
+      setForm(f => ({ ...f, result: 'win' }));
+      setTimeout(() => notesRef.current?.focus(), 50);
+    } else if (form.set3_us === '0' && form.set3_them === '1') {
+      setForm(f => ({ ...f, result: 'loss' }));
+      setTimeout(() => notesRef.current?.focus(), 50);
+    }
+  }, [form.set3_us, form.set3_them, set3IsTiebreak, hideSet3]);
+
+  // Auto-detect result when set 3 is a full set and both scores entered
+  useEffect(() => {
+    if (set3IsTiebreak || hideSet3) return;
+    if (form.set3_us === '' || form.set3_them === '') return;
+    const weWon = Number(form.set3_us) > Number(form.set3_them);
+    setForm(f => ({ ...f, result: weWon ? 'win' : 'loss' }));
+    setTimeout(() => notesRef.current?.focus(), 50);
+  }, [form.set3_us, form.set3_them, set3IsTiebreak, hideSet3]);
+
   const set3HasBoth = form.set3_us !== '' && form.set3_them !== '';
-  const set3Invalid = set3IsTiebreak && set3HasBoth &&
+  const set3Invalid = !hideSet3 && set3IsTiebreak && set3HasBoth &&
     !((form.set3_us === '1' && form.set3_them === '0') || (form.set3_us === '0' && form.set3_them === '1'));
 
   const numStyle = () => ({
@@ -301,28 +370,32 @@ function ScoreModal({ line, onSave, onCancel }) {
           </div>
         ))}
 
-        {/* Set 3 with tiebreak/set toggle */}
-        <div style={rowStyle}>
-          <span style={labelStyle}>Set 3</span>
-          <ScoreInput field="set3_us" isTiebreak={set3IsTiebreak} />
-          {dash}
-          <ScoreInput field="set3_them" isTiebreak={set3IsTiebreak} />
-          <button
-            onClick={() => { setSet3IsTiebreak(b => !b); setField('set3_us', ''); setField('set3_them', ''); }}
-            style={{
-              padding: '5px 10px', borderRadius: 12, border: '1px solid #e2e8f0',
-              background: set3IsTiebreak ? '#ebf8ff' : 'white',
-              color: set3IsTiebreak ? '#2b6cb0' : '#718096',
-              cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap',
-            }}
-          >
-            {set3IsTiebreak ? 'Tie Breaker' : 'Set'}
-          </button>
-        </div>
-        {set3IsTiebreak && (
-          <p style={{ marginLeft: 58, fontSize: '0.72rem', color: set3Invalid ? '#d69e2e' : '#c0c9d4', marginTop: -6, marginBottom: 8 }}>
-            must be 1 or 0
-          </p>
+        {/* Set 3 — hidden when sets 1 & 2 determine a clear winner */}
+        {!hideSet3 && (
+          <>
+            <div style={rowStyle}>
+              <span style={labelStyle}>Set 3</span>
+              <ScoreInput field="set3_us" isTiebreak={set3IsTiebreak} />
+              {dash}
+              <ScoreInput field="set3_them" isTiebreak={set3IsTiebreak} />
+              <button
+                onClick={() => { setSet3IsTiebreak(b => !b); setField('set3_us', ''); setField('set3_them', ''); }}
+                style={{
+                  padding: '5px 10px', borderRadius: 12, border: '1px solid #e2e8f0',
+                  background: set3IsTiebreak ? '#ebf8ff' : 'white',
+                  color: set3IsTiebreak ? '#2b6cb0' : '#718096',
+                  cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap',
+                }}
+              >
+                {set3IsTiebreak ? 'Tie Breaker' : 'Set'}
+              </button>
+            </div>
+            {set3IsTiebreak && (
+              <p style={{ marginLeft: 58, fontSize: '0.72rem', color: set3Invalid ? '#d69e2e' : '#c0c9d4', marginTop: -6, marginBottom: 8 }}>
+                must be 1 or 0
+              </p>
+            )}
+          </>
         )}
 
         <div className="form-group mt-3">
@@ -338,7 +411,7 @@ function ScoreModal({ line, onSave, onCancel }) {
         </div>
         <div className="form-group">
           <label className="form-label">Notes</label>
-          <textarea className="form-control" rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} />
+          <textarea ref={notesRef} className="form-control" rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} />
         </div>
       </div>
       <div className="modal-footer">
@@ -380,16 +453,21 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
   const PlayerRow = ({ playerId, name }) => {
     const isEditing = editing === playerId;
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
-        <span style={{ fontSize: '0.9rem' }}>{name}</span>
+      <div style={{ padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
         {isEditing ? (
-          <div className="flex gap-1">
-            <button className="btn btn-sm" style={{ background: '#27ae60', color: 'white', padding: '2px 8px', fontSize: '0.75rem' }} disabled={saving} onClick={() => setStatus(playerId, true)}>✓</button>
-            <button className="btn btn-sm" style={{ background: '#e53e3e', color: 'white', padding: '2px 8px', fontSize: '0.75rem' }} disabled={saving} onClick={() => setStatus(playerId, false)}>✕</button>
-            <button className="btn btn-outline btn-sm" style={{ padding: '2px 6px', fontSize: '0.75rem' }} onClick={() => setEditing(null)}>–</button>
-          </div>
+          <>
+            <div className="flex gap-2" style={{ marginBottom: 4 }}>
+              <button className="btn btn-sm" style={{ background: '#27ae60', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatus(playerId, true)}>✓</button>
+              <button className="btn btn-sm" style={{ background: '#e53e3e', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatus(playerId, false)}>✕</button>
+              <button className="btn btn-outline btn-sm" style={{ minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} onClick={() => setEditing(null)}>–</button>
+            </div>
+            <span style={{ fontSize: '0.9rem' }}>{name}</span>
+          </>
         ) : (
-          <button className="btn btn-outline btn-sm" style={{ padding: '2px 8px', fontSize: '0.7rem', opacity: 0.5 }} onClick={() => setEditing(playerId)}>Edit</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.9rem' }}>{name}</span>
+            <button className="btn btn-outline btn-sm" style={{ padding: '2px 8px', fontSize: '0.7rem', opacity: 0.5 }} onClick={() => setEditing(playerId)}>Edit</button>
+          </div>
         )}
       </div>
     );
@@ -421,12 +499,14 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
       <Col label="Available"     color="#27ae60" items={available}   />
       <Col label="Not Available" color="#e53e3e" items={unavailable} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <div style={{ marginBottom: 8 }}>
           <span style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096' }}>
             No Response ({noResponse.length})
           </span>
           {noResponse.length > 0 && (
-            <ShareMenu label="Remind" onSms={handleRemindSms} onCopy={handleRemindCopy} hasSms={noResponseCells.length > 0} align="left" />
+            <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
+              <ShareMenu label="Remind" onSms={handleRemindSms} onCopy={handleRemindCopy} hasSms={noResponseCells.length > 0} align="right" variant="yellow-outline" />
+            </div>
           )}
         </div>
         {noResponse.length === 0
@@ -579,6 +659,9 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
   const handleReminderSms = () => window.open(`sms:${lineCells.join(',')}?body=${encodeURIComponent(reminderMsg)}`);
   const handleReminderCopy = () => copyText(reminderMsg);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const isMatchDay = lineDate && lineDate <= today;
+
   return (
     <div className="line-card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
       {/* Left: title, date, players, score — all stacked tightly */}
@@ -619,7 +702,10 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
         >
           {line.players.length > 0 ? 'Edit Players' : 'Assign Players'}
         </button>
-        <button className="btn btn-primary btn-sm w-full" onClick={() => onScore(line)}>
+        <button
+          className={`btn btn-sm w-full ${isMatchDay ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => onScore(line)}
+        >
           {line.score ? 'Update Score' : 'Enter Score'}
         </button>
         {line.players.length > 0 && (
@@ -630,6 +716,7 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
             hasSms={lineCells.length > 0}
             align="right"
             fullWidth
+            variant="yellow-outline"
           />
         )}
       </div>
@@ -743,76 +830,107 @@ export default function MatchDetail() {
 
       {/* Match Info */}
       <div className="card">
-        <div className="flex gap-2 mb-2" style={{ flexWrap: 'wrap' }}>
-          <span className={`badge ${match.is_home ? 'badge-blue' : 'badge-orange'}`}>{match.is_home ? 'Home' : 'Away'}</span>
-          <span className={`badge ${match.status === 'completed' ? 'badge-green' : match.status === 'cancelled' ? 'badge-red' : 'badge-blue'}`}>{match.status}</span>
-          {match.season_name && <span className="badge badge-gray">{match.season_name}</span>}
-        </div>
-        <div style={{ fontSize: '1.05rem', marginBottom: 4 }}>
-          {dateStr}{timeStr ? ` at ${timeStr}` : ''}
-        </div>
-        {!match.is_home && match.away_address && (
-          <div className="text-muted text-sm">📍 {match.away_address}</div>
-        )}
-        {match.notes && <div className="text-muted text-sm mt-1">📝 {match.notes}</div>}
-        <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
-          {match.status !== 'completed' && <button className="btn btn-success btn-sm" onClick={() => handleStatusChange('completed')}>Mark Complete</button>}
-          {match.status !== 'cancelled' && (
-            <button
-              className="btn btn-sm"
-              style={{ background: 'white', color: '#e53e3e', border: '1.5px solid #e53e3e' }}
-              onClick={() => { if (confirm('Are you sure you want to cancel this match?')) handleStatusChange('cancelled'); }}
-            >
-              Cancel Match
-            </button>
-          )}
-          {match.status === 'cancelled' && <button className="btn btn-outline btn-sm" onClick={() => handleStatusChange('scheduled')}>Reschedule</button>}
-        </div>
-      </div>
-
-      {/* Availability Section */}
-      <div className="card">
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-            <div>
-              <div className="card-title">Player Availability</div>
-              <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex gap-2 mb-2" style={{ flexWrap: 'wrap' }}>
+              <span className={`badge ${match.is_home ? 'badge-blue' : 'badge-orange'}`}>{match.is_home ? 'Home' : 'Away'}</span>
+              <span className={`badge ${match.status === 'completed' ? 'badge-green' : match.status === 'cancelled' ? 'badge-red' : 'badge-blue'}`}>{match.status}</span>
+              {match.season_name && <span className="badge badge-gray">{match.season_name}</span>}
             </div>
-            <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} />
+            <div style={{ fontSize: '1.05rem', marginBottom: 4 }}>
+              {dateStr}{timeStr ? ` at ${timeStr}` : ''}
+            </div>
+            {!match.is_home && match.away_address && (
+              <div className="text-muted text-sm">📍 {match.away_address}</div>
+            )}
+            {match.notes && <div className="text-muted text-sm mt-1">📝 {match.notes}</div>}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+            {match.status !== 'completed' && (
+              <button
+                className="match-action-btn"
+                style={{ background: '#38a169', color: 'white', border: '1.5px solid #38a169' }}
+                onClick={() => { if (confirm('Mark this match as complete?')) handleStatusChange('completed'); }}
+                title="Mark Complete"
+              >
+                <span className="btn-icon">✓</span>
+                <span className="btn-label">Mark Complete</span>
+              </button>
+            )}
+            {match.status !== 'cancelled' && (
+              <button
+                className="match-action-btn"
+                style={{ background: 'white', color: '#e53e3e', border: '1.5px solid #e53e3e' }}
+                onClick={() => { if (confirm('Are you sure you want to cancel this match?')) handleStatusChange('cancelled'); }}
+                title="Cancel Match"
+              >
+                <span className="btn-icon">✕</span>
+                <span className="btn-label">Cancel Match</span>
+              </button>
+            )}
+            {match.status === 'cancelled' && (
+              <button
+                className="match-action-btn btn-outline"
+                onClick={() => handleStatusChange('scheduled')}
+                title="Reschedule"
+              >
+                <span className="btn-icon">↺</span>
+                <span className="btn-label">Reschedule</span>
+              </button>
+            )}
           </div>
         </div>
-
-        <AvailabilityColumns
-          match={match}
-          players={players}
-          matchId={id}
-          onUpdate={load}
-        />
       </div>
 
-      {/* Lines Section */}
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">Lines & Assignments</div>
-          <ShareMenu label="Send Line-ups" onSms={handleTextLineup} onCopy={handleCopyLineup} />
+      <div className="match-detail-columns">
+        {/* Availability Section */}
+        <div className="card">
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="card-title">Player Availability</div>
+                <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
+              </div>
+              <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} variant="yellow" />
+            </div>
+          </div>
+
+          <AvailabilityColumns
+            match={match}
+            players={players}
+            matchId={id}
+            onUpdate={load}
+          />
         </div>
-        {match.lines.length === 0 ? (
-          <p className="text-muted text-sm">No lines configured for this match.</p>
-        ) : (
-          match.lines.map(line => (
-            <LineCard
-              key={line.id}
-              line={line}
-              allPlayers={players}
-              availability={match.availability}
-              matchId={id}
-              match={match}
-              onAssign={handleAssign}
-              onScore={handleScore}
-              useCustomDates={match.use_custom_dates}
-            />
-          ))
-        )}
+
+        {/* Lines Section */}
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">Lines & Assignments</div>
+            <ShareMenu label="Send Line-ups" onSms={handleTextLineup} onCopy={handleCopyLineup} variant="yellow" />
+          </div>
+          {match.lines.length === 0 ? (
+            <p className="text-muted text-sm">No lines configured for this match.</p>
+          ) : (
+            [...match.lines].sort((a, b) => {
+              const typeOrder = t => t === 'singles' ? 0 : 1;
+              if (typeOrder(a.line_type) !== typeOrder(b.line_type)) return typeOrder(a.line_type) - typeOrder(b.line_type);
+              return (a.line_number || 0) - (b.line_number || 0);
+            }).map(line => (
+              <LineCard
+                key={line.id}
+                line={line}
+                allPlayers={players}
+                availability={match.availability}
+                matchId={id}
+                match={match}
+                onAssign={handleAssign}
+                onScore={handleScore}
+                useCustomDates={match.use_custom_dates}
+              />
+            ))
+          )}
+        </div>
       </div>
 
       {/* Modals */}
@@ -822,6 +940,7 @@ export default function MatchDetail() {
             line={selectedLine}
             allPlayers={players}
             availability={match.availability}
+            matchLines={match.lines}
             onSave={handleSaveAssignment}
             onCancel={() => setModal(null)}
           />
@@ -830,7 +949,7 @@ export default function MatchDetail() {
 
       {modal === 'score' && selectedLine && (
         <Modal title={`Score — ${selectedLine.line_type} Line ${selectedLine.line_number}`} onClose={() => setModal(null)}>
-          <ScoreModal line={selectedLine} onSave={handleSaveScore} onCancel={() => setModal(null)} />
+          <ScoreModal line={selectedLine} match={match} onSave={handleSaveScore} onCancel={() => setModal(null)} />
         </Modal>
       )}
 

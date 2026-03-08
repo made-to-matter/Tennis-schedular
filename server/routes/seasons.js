@@ -58,7 +58,7 @@ router.get('/:id', async (req, res) => {
 
 // POST create season (requires team_id; validates captain owns team)
 router.post('/', async (req, res) => {
-  const { name, default_day_of_week, default_time, line_templates, team_id } = req.body;
+  const { name, default_day_of_week, default_time, line_templates, team_id, num_sets, last_set_tiebreak } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (!team_id) return res.status(400).json({ error: 'team_id is required' });
 
@@ -74,8 +74,8 @@ router.post('/', async (req, res) => {
     await client.query('BEGIN');
 
     const result = await client.query(
-      'INSERT INTO seasons (name, default_day_of_week, default_time, team_id) VALUES ($1, $2, $3, $4) RETURNING id',
-      [name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, team_id]
+      'INSERT INTO seasons (name, default_day_of_week, default_time, team_id, num_sets, last_set_tiebreak) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, team_id, num_sets ?? 3, last_set_tiebreak !== undefined ? last_set_tiebreak : true]
     );
     const seasonId = result.rows[0].id;
 
@@ -111,7 +111,7 @@ router.post('/', async (req, res) => {
 
 // PUT update season (captain-scoped)
 router.put('/:id', async (req, res) => {
-  const { name, default_day_of_week, default_time, line_templates } = req.body;
+  const { name, default_day_of_week, default_time, line_templates, num_sets, last_set_tiebreak } = req.body;
   // Verify captain owns this season via team
   const existing = (await query(
     `SELECT s.id FROM seasons s
@@ -126,8 +126,8 @@ router.put('/:id', async (req, res) => {
     await client.query('BEGIN');
 
     await client.query(
-      'UPDATE seasons SET name=$1, default_day_of_week=$2, default_time=$3 WHERE id=$4',
-      [name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, req.params.id]
+      'UPDATE seasons SET name=$1, default_day_of_week=$2, default_time=$3, num_sets=$4, last_set_tiebreak=$5 WHERE id=$6',
+      [name, default_day_of_week !== undefined ? default_day_of_week : null, default_time || null, num_sets ?? 3, last_set_tiebreak !== undefined ? last_set_tiebreak : true, req.params.id]
     );
 
     if (Array.isArray(line_templates)) {
