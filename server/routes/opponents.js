@@ -5,8 +5,8 @@ const { query } = require('../database');
 router.get('/', async (req, res) => {
   try {
     const result = await query(
-      'SELECT * FROM opponents WHERE captain_id = $1 ORDER BY name',
-      [req.captainId]
+      'SELECT * FROM opponents WHERE captain_id = ANY($1::uuid[]) ORDER BY name',
+      [req.captainIds]
     );
     res.json(result.rows);
   } catch (err) {
@@ -33,8 +33,8 @@ router.put('/:id', async (req, res) => {
   const { name, address, notes } = req.body;
   try {
     await query(
-      'UPDATE opponents SET name=$1, address=$2, notes=$3 WHERE id=$4 AND captain_id=$5',
-      [name, address || null, notes || null, req.params.id, req.captainId]
+      'UPDATE opponents SET name=$1, address=$2, notes=$3 WHERE id=$4 AND captain_id = ANY($5::uuid[])',
+      [name, address || null, notes || null, req.params.id, req.captainIds]
     );
     const opponent = (await query('SELECT * FROM opponents WHERE id = $1', [req.params.id])).rows[0];
     res.json(opponent);
@@ -45,7 +45,7 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    await query('DELETE FROM opponents WHERE id = $1 AND captain_id = $2', [req.params.id, req.captainId]);
+    await query('DELETE FROM opponents WHERE id = $1 AND captain_id = ANY($2::uuid[])', [req.params.id, req.captainIds]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

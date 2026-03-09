@@ -5,6 +5,7 @@ import Schedule from './pages/Schedule';
 import MatchDetail from './pages/MatchDetail';
 import PlayerRecord from './pages/PlayerRecord';
 import AvailabilityPublic from './pages/AvailabilityPublic';
+import InviteAccept from './pages/InviteAccept';
 import Teams from './pages/Teams';
 import Login from './pages/Login';
 import { teams as teamsApi, seasons as seasonsApi } from './api';
@@ -13,7 +14,7 @@ import { supabase } from './lib/supabase';
 export const TeamContext = createContext({
   activeTeam: null, setActiveTeam: () => {}, teams: [],
   activeSeason: null, setActiveSeason: () => {}, teamSeasons: [],
-  refreshTeams: () => {},
+  refreshTeams: () => {}, currentUserId: null,
 });
 
 const LS_KEY = 'tennis_active_team_id';
@@ -291,7 +292,9 @@ function Nav({ teams, activeTeam, setActiveTeam, teamSeasons, activeSeason, setA
   const [profilePassword, setProfilePassword] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState(null);
-  const isPublic = loc.pathname.startsWith('/availability/match/');
+  const isPublic =
+    loc.pathname.startsWith('/availability/match/') ||
+    loc.pathname.startsWith('/invite/');
 
   // Sync form with user when menu opens
   useEffect(() => {
@@ -504,15 +507,17 @@ export default function App() {
     );
   }
 
-  // Public availability pages skip auth entirely — handle before session check
-  const isPublicPath = window.location.pathname.startsWith('/availability/match/');
+  // Public pages skip auth entirely — handle before session check
+  const isPublicPath =
+    window.location.pathname.startsWith('/availability/match/') ||
+    window.location.pathname.startsWith('/invite/');
 
   if (!session && !isPublicPath) {
     return <Login />;
   }
 
   return (
-    <TeamContext.Provider value={{ activeTeam, setActiveTeam, teams: teamList, refreshTeams, activeSeason, setActiveSeason, teamSeasons }}>
+    <TeamContext.Provider value={{ activeTeam, setActiveTeam, teams: teamList, refreshTeams, activeSeason, setActiveSeason, teamSeasons, currentUserId: session?.user?.id || null }}>
       <BrowserRouter>
         <div className="app">
           <Nav
@@ -533,6 +538,7 @@ export default function App() {
 <Route path="/teams" element={<Teams />} />
               <Route path="/matches/:id" element={<MatchDetail />} />
               <Route path="/availability/match/:matchId" element={<AvailabilityPublic />} />
+              <Route path="/invite/:token" element={<InviteAccept />} />
             </Routes>
           </main>
         </div>

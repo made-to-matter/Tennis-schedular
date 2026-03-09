@@ -71,4 +71,12 @@ export const availability = {
   notifyAssignment: (matchId) => api.post(`/availability/notify-assignment/${matchId}`).then(r => r.data),
 };
 
+export const invites = {
+  getToken: (teamId) => api.get(`/invites/team/${teamId}/token`).then(r => r.data),
+  preview: (token) => api.get(`/invites/preview/${token}`).then(r => r.data),
+  accept: (token) => api.post(`/invites/accept/${token}`).then(r => r.data),
+  listCoCaptains: (teamId) => api.get(`/invites/team/${teamId}/co-captains`).then(r => r.data),
+  removeCoCaptain: (teamId, userId) => api.delete(`/invites/team/${teamId}/co-captains/${userId}`).then(r => r.data),
+};
+
 export default api;

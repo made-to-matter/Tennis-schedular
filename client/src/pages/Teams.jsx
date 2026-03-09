@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { teams as teamsApi, players as playersApi, seasons as seasonsApi } from '../api';
+import { teams as teamsApi, players as playersApi, seasons as seasonsApi, invites as invitesApi } from '../api';
 import { TeamContext } from '../App';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -380,8 +380,71 @@ function SeasonsPanel({ team, allPlayers, onSeasonsChanged }) {
   );
 }
 
+// Invite icon (link/chain)
+const InviteIcon = ({ size = 15 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+  </svg>
+);
+
+function CoCaptainsPanel({ team }) {
+  const [coCaptains, setCoCaptains] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    invitesApi.listCoCaptains(team.id)
+      .then(data => { setCoCaptains(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [team.id]);
+
+  const handleRemove = async (userId) => {
+    if (!confirm('Remove this co-captain?')) return;
+    setRemoving(userId);
+    await invitesApi.removeCoCaptain(team.id, userId);
+    setRemoving(null);
+    load();
+  };
+
+  return (
+    <div style={{ marginTop: 14, borderTop: '1px solid #e2e8f0', paddingTop: 12 }}>
+      <div style={{ fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096', marginBottom: 8 }}>
+        Co-Captains
+      </div>
+      {loading ? (
+        <div className="text-muted text-sm">Loading…</div>
+      ) : coCaptains.length === 0 ? (
+        <p className="text-muted text-sm">No co-captains yet.</p>
+      ) : (
+        <div>
+          {coCaptains.map(cc => (
+            <div key={cc.id} style={{ display: 'flex', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #f5f5f5' }}>
+              <span style={{ flex: 1, fontSize: '0.875rem' }}>
+                {cc.name || cc.email || cc.id}
+                {cc.email && cc.name && <span className="text-muted" style={{ marginLeft: 6, fontSize: '0.8rem' }}>{cc.email}</span>}
+              </span>
+              <button
+                onClick={() => handleRemove(cc.id)}
+                disabled={removing === cc.id}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', fontSize: '0.75rem', padding: '2px 6px' }}
+              >
+                {removing === cc.id ? '…' : 'remove'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Teams() {
-  const { refreshTeams } = useContext(TeamContext);
+  const { refreshTeams, currentUserId } = useContext(TeamContext);
   const [teamList, setTeamList] = useState([]);
   const [allPlayers, setAllPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -389,6 +452,7 @@ export default function Teams() {
   const [editing, setEditing] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [showInactive, setShowInactive] = useState(false);
+  const [copiedTeamId, setCopiedTeamId] = useState(null);
 
   const load = async () => {
     const [t, p] = await Promise.all([teamsApi.list(), playersApi.list()]);
@@ -415,6 +479,17 @@ export default function Teams() {
     else await teamsApi.create(data);
     setModal(null); setEditing(null);
     await load(); refreshTeams();
+  };
+
+  const handleCopyInvite = async (team) => {
+    try {
+      const { link } = await invitesApi.getToken(team.id);
+      await navigator.clipboard.writeText(link);
+      setCopiedTeamId(team.id);
+      setTimeout(() => setCopiedTeamId(null), 2500);
+    } catch (err) {
+      alert('Failed to copy invite link: ' + (err?.response?.data?.error || err.message));
+    }
   };
 
   const handleDeactivate = async (team) => {
@@ -468,16 +543,45 @@ export default function Teams() {
                   </div>
                 </div>
                 {/* Icon actions — stop propagation so they don't toggle */}
-                <IconBtn onClick={() => { setEditing(team); setModal('form'); }} title="Edit team" stopPropagation>
-                  <PencilIcon size={15} />
-                </IconBtn>
-                <IconBtn onClick={() => handleDeactivate(team)} title="Deactivate team" color="#fc8181" stopPropagation>
-                  <DeactivateIcon size={15} />
-                </IconBtn>
+                {team.captain_id === currentUserId && (
+                  <>
+                    <div style={{ position: 'relative' }}>
+                      <IconBtn
+                        onClick={() => handleCopyInvite(team)}
+                        title="Invite co-captain"
+                        color="#4a90d9"
+                        stopPropagation
+                      >
+                        <InviteIcon size={15} />
+                      </IconBtn>
+                      {copiedTeamId === team.id && (
+                        <div style={{
+                          position: 'absolute', bottom: '110%', left: '50%', transform: 'translateX(-50%)',
+                          background: '#2d3748', color: 'white', fontSize: '0.72rem', fontWeight: 500,
+                          padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap', pointerEvents: 'none',
+                          zIndex: 10,
+                        }}>
+                          Link copied!
+                        </div>
+                      )}
+                    </div>
+                    <IconBtn onClick={() => { setEditing(team); setModal('form'); }} title="Edit team" stopPropagation>
+                      <PencilIcon size={15} />
+                    </IconBtn>
+                    <IconBtn onClick={() => handleDeactivate(team)} title="Deactivate team" color="#fc8181" stopPropagation>
+                      <DeactivateIcon size={15} />
+                    </IconBtn>
+                  </>
+                )}
               </div>
 
               {expanded[team.id] === 'seasons' && (
-                <SeasonsPanel team={team} allPlayers={allPlayers} onSeasonsChanged={() => {}} />
+                <>
+                  <SeasonsPanel team={team} allPlayers={allPlayers} onSeasonsChanged={() => {}} />
+                  {team.captain_id === currentUserId && (
+                    <CoCaptainsPanel team={team} />
+                  )}
+                </>
               )}
             </div>
           ))}

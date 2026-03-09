@@ -11,17 +11,17 @@ router.get('/', async (req, res) => {
       seasons = (await query(
         `SELECT s.* FROM seasons s
          JOIN teams t ON t.id = s.team_id
-         WHERE s.team_id = $1 AND t.captain_id = $2
+         WHERE s.team_id = $1 AND t.captain_id = ANY($2::uuid[])
          ORDER BY s.created_at DESC`,
-        [team_id, req.captainId]
+        [team_id, req.captainIds]
       )).rows;
     } else {
       seasons = (await query(
         `SELECT s.* FROM seasons s
          JOIN teams t ON t.id = s.team_id
-         WHERE t.captain_id = $1
+         WHERE t.captain_id = ANY($1::uuid[])
          ORDER BY s.created_at DESC`,
-        [req.captainId]
+        [req.captainIds]
       )).rows;
     }
     for (const s of seasons) {
@@ -42,8 +42,8 @@ router.get('/:id', async (req, res) => {
     const season = (await query(
       `SELECT s.* FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [req.params.id, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [req.params.id, req.captainIds]
     )).rows[0];
     if (!season) return res.status(404).json({ error: 'Season not found' });
     season.line_templates = (await query(
@@ -62,10 +62,10 @@ router.post('/', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name is required' });
   if (!team_id) return res.status(400).json({ error: 'team_id is required' });
 
-  // Validate captain owns team
+  // Validate captain or co-captain has access to team
   const teamRow = (await query(
-    'SELECT id FROM teams WHERE id = $1 AND captain_id = $2',
-    [team_id, req.captainId]
+    'SELECT id FROM teams WHERE id = $1 AND captain_id = ANY($2::uuid[])',
+    [team_id, req.captainIds]
   )).rows[0];
   if (!teamRow) return res.status(403).json({ error: 'Team not found or access denied' });
 
@@ -93,8 +93,8 @@ router.post('/', async (req, res) => {
     const season = (await query(
       `SELECT s.* FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [seasonId, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [seasonId, req.captainIds]
     )).rows[0];
     season.line_templates = (await query(
       'SELECT * FROM line_templates WHERE season_id = $1 ORDER BY line_number',
@@ -112,12 +112,12 @@ router.post('/', async (req, res) => {
 // PUT update season (captain-scoped)
 router.put('/:id', async (req, res) => {
   const { name, default_day_of_week, default_time, line_templates, num_sets, last_set_tiebreak } = req.body;
-  // Verify captain owns this season via team
+  // Verify captain or co-captain has access to this season via team
   const existing = (await query(
     `SELECT s.id FROM seasons s
      JOIN teams t ON t.id = s.team_id
-     WHERE s.id = $1 AND t.captain_id = $2`,
-    [req.params.id, req.captainId]
+     WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+    [req.params.id, req.captainIds]
   )).rows[0];
   if (!existing) return res.status(403).json({ error: 'Season not found or access denied' });
 
@@ -145,8 +145,8 @@ router.put('/:id', async (req, res) => {
     const season = (await query(
       `SELECT s.* FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [req.params.id, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [req.params.id, req.captainIds]
     )).rows[0];
     season.line_templates = (await query(
       'SELECT * FROM line_templates WHERE season_id = $1 ORDER BY line_number',
@@ -167,8 +167,8 @@ router.delete('/:id', async (req, res) => {
     const existing = (await query(
       `SELECT s.id FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [req.params.id, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [req.params.id, req.captainIds]
     )).rows[0];
     if (!existing) return res.status(403).json({ error: 'Season not found or access denied' });
 
@@ -185,8 +185,8 @@ router.get('/:id/players', async (req, res) => {
     const season = (await query(
       `SELECT s.id FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [req.params.id, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [req.params.id, req.captainIds]
     )).rows[0];
     if (!season) return res.status(403).json({ error: 'Season not found or access denied' });
 
@@ -213,8 +213,8 @@ router.post('/:id/players', async (req, res) => {
     const season = (await query(
       `SELECT s.id FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [req.params.id, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [req.params.id, req.captainIds]
     )).rows[0];
     if (!season) return res.status(403).json({ error: 'Season not found or access denied' });
 
@@ -236,8 +236,8 @@ router.delete('/:id/players/:playerId', async (req, res) => {
     const season = (await query(
       `SELECT s.id FROM seasons s
        JOIN teams t ON t.id = s.team_id
-       WHERE s.id = $1 AND t.captain_id = $2`,
-      [req.params.id, req.captainId]
+       WHERE s.id = $1 AND t.captain_id = ANY($2::uuid[])`,
+      [req.params.id, req.captainIds]
     )).rows[0];
     if (!season) return res.status(403).json({ error: 'Season not found or access denied' });
 

@@ -1,14 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const { query, getClient } = require('../database');
+const { assertTeamAccess } = require('../lib/teamAccess');
 
-// GET all teams (active first)
+// GET all teams (active first) — includes co-captained teams
 router.get('/', async (req, res) => {
   try {
-    const result = await query(
-      'SELECT * FROM teams WHERE captain_id = $1 ORDER BY active DESC, name',
-      [req.captainId]
-    );
+    const result = await query(`
+      SELECT * FROM teams WHERE captain_id = $1 AND active = 1
+      UNION
+      SELECT t.* FROM teams t JOIN team_co_captains tcc ON tcc.team_id = t.id
+      WHERE tcc.co_captain_id = $1 AND t.active = 1
+      UNION
+      SELECT * FROM teams WHERE captain_id = $1 AND active = 0
+      ORDER BY active DESC, name
+    `, [req.captainId]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -35,9 +41,11 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const { name, description } = req.body;
   try {
+    const hasAccess = await assertTeamAccess(req.params.id, req.userId);
+    if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
     await query(
-      'UPDATE teams SET name=$1, description=$2 WHERE id=$3 AND captain_id=$4',
-      [name, description || null, req.params.id, req.captainId]
+      'UPDATE teams SET name=$1, description=$2 WHERE id=$3',
+      [name, description || null, req.params.id]
     );
     const team = (await query('SELECT * FROM teams WHERE id = $1', [req.params.id])).rows[0];
     if (!team) return res.status(404).json({ error: 'Team not found' });
@@ -47,7 +55,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// PATCH deactivate team (soft delete)
+// PATCH deactivate team (soft delete) — captain only
 router.patch('/:id/deactivate', async (req, res) => {
   try {
     await query('UPDATE teams SET active=0 WHERE id=$1 AND captain_id=$2', [req.params.id, req.captainId]);
@@ -57,7 +65,7 @@ router.patch('/:id/deactivate', async (req, res) => {
   }
 });
 
-// PATCH reactivate team
+// PATCH reactivate team — captain only
 router.patch('/:id/activate', async (req, res) => {
   try {
     await query('UPDATE teams SET active=1 WHERE id=$1 AND captain_id=$2', [req.params.id, req.captainId]);

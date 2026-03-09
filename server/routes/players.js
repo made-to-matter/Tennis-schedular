@@ -6,8 +6,8 @@ const { query, getClient } = require('../database');
 router.get('/', async (req, res) => {
   try {
     const result = await query(
-      'SELECT * FROM players WHERE captain_id = $1 ORDER BY name',
-      [req.captainId]
+      'SELECT * FROM players WHERE captain_id = ANY($1::uuid[]) ORDER BY name',
+      [req.captainIds]
     );
     res.json(result.rows);
   } catch (err) {
@@ -19,8 +19,8 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const playerResult = await query(
-      'SELECT * FROM players WHERE id = $1 AND captain_id = $2',
-      [req.params.id, req.captainId]
+      'SELECT * FROM players WHERE id = $1 AND captain_id = ANY($2::uuid[])',
+      [req.params.id, req.captainIds]
     );
     const player = playerResult.rows[0];
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -79,8 +79,8 @@ router.put('/:id', async (req, res) => {
   const { name, email, cell, active } = req.body;
   try {
     await query(
-      'UPDATE players SET name=$1, email=$2, cell=$3, active=$4 WHERE id=$5 AND captain_id=$6',
-      [name, email || null, cell || null, active !== undefined ? active : 1, req.params.id, req.captainId]
+      'UPDATE players SET name=$1, email=$2, cell=$3, active=$4 WHERE id=$5 AND captain_id = ANY($6::uuid[])',
+      [name, email || null, cell || null, active !== undefined ? active : 1, req.params.id, req.captainIds]
     );
     const player = (await query('SELECT * FROM players WHERE id = $1', [req.params.id])).rows[0];
     res.json(player);
@@ -92,7 +92,28 @@ router.put('/:id', async (req, res) => {
 // DELETE player
 router.delete('/:id', async (req, res) => {
   try {
-    await query('DELETE FROM players WHERE id = $1 AND captain_id = $2', [req.params.id, req.captainId]);
+    // Verify captain owns this player
+    const player = (await query(
+      'SELECT id FROM players WHERE id = $1 AND captain_id = ANY($2::uuid[])',
+      [req.params.id, req.captainIds]
+    )).rows[0];
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    // Block delete if player has any match line history
+    const history = (await query(
+      'SELECT 1 FROM match_line_players WHERE player_id = $1 LIMIT 1',
+      [req.params.id]
+    )).rows[0];
+    if (history) {
+      return res.status(409).json({ error: 'has_history' });
+    }
+
+    // Safe to delete — clean up non-match records first
+    await query('DELETE FROM availability_tokens WHERE player_id = $1', [req.params.id]);
+    await query('DELETE FROM player_availability WHERE player_id = $1', [req.params.id]);
+    await query('DELETE FROM season_players WHERE player_id = $1', [req.params.id]);
+    await query('DELETE FROM team_players WHERE player_id = $1', [req.params.id]);
+    await query('DELETE FROM players WHERE id = $1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

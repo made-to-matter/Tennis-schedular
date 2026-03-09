@@ -55,9 +55,9 @@ router.get('/', async (req, res) => {
         LEFT JOIN opponents o ON o.id = m.opponent_id
         LEFT JOIN seasons s ON s.id = m.season_id
         LEFT JOIN teams t ON t.id = m.team_id
-        WHERE m.team_id = $1 AND t.captain_id = $2
+        WHERE m.team_id = $1 AND t.captain_id = ANY($2::uuid[])
         ORDER BY m.match_date DESC
-      `, [team_id, req.captainId])).rows;
+      `, [team_id, req.captainIds])).rows;
     } else {
       matches = (await query(`
         SELECT m.*, o.name as opponent_name, s.name as season_name
@@ -65,9 +65,9 @@ router.get('/', async (req, res) => {
         LEFT JOIN opponents o ON o.id = m.opponent_id
         LEFT JOIN seasons s ON s.id = m.season_id
         LEFT JOIN teams t ON t.id = m.team_id
-        WHERE t.captain_id = $1
+        WHERE t.captain_id = ANY($1::uuid[])
         ORDER BY m.match_date DESC
-      `, [req.captainId])).rows;
+      `, [req.captainIds])).rows;
     }
     res.json(matches);
   } catch (err) {
