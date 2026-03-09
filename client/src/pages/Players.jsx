@@ -55,7 +55,13 @@ function BulkImportModal({ onSave, onCancel }) {
     const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
     return lines.map(line => {
       const parts = line.split(/[,\t]+/).map(p => p.trim());
-      return { name: parts[0] || '', email: parts[1] || '', cell: parts[2] || '' };
+      const name = parts[0] || '';
+      let email = '', cell = '';
+      for (const part of parts.slice(1)) {
+        if (part.includes('@')) email = part;
+        else if (part) cell = part;
+      }
+      return { name, email, cell };
     }).filter(p => p.name);
   };
 
@@ -65,7 +71,7 @@ function BulkImportModal({ onSave, onCancel }) {
     <>
       <div className="modal-body">
         <div className="alert alert-info">
-          Paste players — one per line. Format: <strong>Name, Email, Cell</strong> (email/cell optional)
+          Paste players — one per line. Format: <strong>Name, Email, Cell</strong> (email/cell optional, order doesn't matter)
         </div>
         <div className="form-group">
           <label className="form-label">Paste player list</label>
@@ -154,9 +160,18 @@ export default function Players() {
     setModal(null); load();
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Remove this player?')) return;
-    await playersApi.delete(id); load();
+  const handleDelete = async (player) => {
+    if (!confirm(`Remove ${player.name}?`)) return;
+    try {
+      await playersApi.delete(player.id);
+      load();
+    } catch (err) {
+      if (err.response?.data?.error === 'has_history') {
+        alert(`${player.name} has match history and cannot be deleted. Use "Deactivate" to hide them from active rosters.`);
+      } else {
+        alert('Could not delete player: ' + (err.response?.data?.error || err.message));
+      }
+    }
   };
 
   const handleToggleActive = async (player) => {
@@ -258,7 +273,7 @@ export default function Players() {
                         <button className="btn btn-outline btn-sm" onClick={() => handleToggleActive(p)}>
                           {p.active ? 'Deactivate' : 'Activate'}
                         </button>
-                        <button onClick={() => handleDelete(p.id)} title="Delete player" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '4px 6px', borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}>
+                        <button onClick={() => handleDelete(p)} title="Delete player" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fc8181', padding: '4px 6px', borderRadius: 6, display: 'inline-flex', alignItems: 'center' }}>
                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                         </button>
                       </div>
