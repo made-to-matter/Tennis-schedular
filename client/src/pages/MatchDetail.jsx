@@ -1,6 +1,58 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { matches as matchesApi, players as playersApi, availability as availApi } from '../api';
+import { matches as matchesApi, players as playersApi, availability as availApi, opponents as opponentsApi } from '../api';
+import { TeamContext } from '../App';
+import MatchForm from '../components/MatchForm';
+
+// ---------------------------------------------------------------------------
+// SMS URL helpers
+//
+// Platform differences:
+//   iOS Safari:   sms://open?addresses=+1XXX,+1YYY&body=MSG
+//                 The standard `sms:number` scheme only accepts a single
+//                 recipient on iOS. The `sms://open?addresses=` variant is
+//                 required to pre-populate multiple recipients in Messages.
+//
+//   Android:      smsto:number1,number2?body=MSG
+//                 Most Android SMS apps honour the `smsto:` scheme with
+//                 comma-separated numbers and a `?body=` parameter.
+//
+//   Fallback:     sms:number1,number2?body=MSG
+//                 Desktop / unknown — opens whatever handler is registered.
+//
+// All numbers are normalised to E.164 (+1XXXXXXXXXX) before use.
+// ---------------------------------------------------------------------------
+
+/** Strip formatting from a phone number, return digits only. */
+function normalizeUSPhone(phone) {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10) return null; // invalid — filter out
+  return digits;
+}
+
+/** Build the platform-appropriate SMS URL for one or more recipients. */
+function buildSmsUrl(numbers, message) {
+  const valid = numbers.map(normalizeUSPhone).filter(Boolean);
+  const encoded = encodeURIComponent(message);
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+
+  if (isAndroid) {
+    return `smsto:${valid.join(',')}?body=${encoded}`;
+  }
+  // iOS and macOS Messages both use the sms://open?addresses= variant
+  return `sms://open?addresses=${valid.join(',')}&body=${encoded}`;
+}
+
+/** Open the SMS composer. Uses location.href (not window.open) for iOS reliability. */
+function openGroupSms(numbers, message) {
+  window.location.href = buildSmsUrl(numbers, message);
+}
+
+// Legacy single-cell cleaner kept for the individual `<a href>` links below
+const cleanCell = (cell) => cell ? cell.replace(/\D/g, '') : '';
 
 const formatDate = (d) => {
   if (!d) return '';
@@ -119,7 +171,7 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
             }}
           >
             {copied ? <CheckIcon size={18} /> : <LinkIcon size={18} />}
-            {copied ? 'Copied!' : 'Copy Link'}
+            {copied ? 'Copied!' : 'Copy Message'}
           </button>
         </div>
       )}
@@ -430,7 +482,8 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
 
   const teamLink = `${window.location.origin}/availability/match/${matchId}`;
   const teamPrefix = match.team_name ? `🎾 ${match.team_name} — ` : '';
-  const matchDesc = `${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}`;
+  const matchTime = match.match_time ? ` at ${formatTime(match.match_time)}` : '';
+  const matchDesc = `${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${matchTime}`;
 
   const byPlayer = match.availability.reduce((acc, a) => {
     if (!acc[a.player_id]) acc[a.player_id] = { ...a };
@@ -476,10 +529,7 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
   const remindMsg = `${teamPrefix}Please mark your availability for ${matchDesc}: ${teamLink}`;
   const noResponseCells = noResponse.filter(p => p.cell).map(p => p.cell);
 
-  const handleRemindSms = () => {
-    const to = noResponseCells.join(',');
-    window.open(`sms:${to}?body=${encodeURIComponent(remindMsg)}`);
-  };
+  const handleRemindSms = () => openGroupSms(noResponseCells, remindMsg);
   const handleRemindCopy = () => { copyText(teamLink); };
 
   const Col = ({ label, color, items }) => (
@@ -566,8 +616,12 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
     });
   };
 
+  const assignedCells = [...new Set(
+    assignedLines.flatMap(l => l.players.map(p => p.cell).filter(Boolean))
+  )];
+
   const handleGroupText = () => {
-    window.open(`sms:&body=${encodeURIComponent(lineupText)}`);
+    openGroupSms(assignedCells, lineupText);
     setTextSent(true);
     setTimeout(() => setTextSent(false), 3000);
   };
@@ -616,7 +670,7 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
                 </div>
                 {m.player.cell ? (
                   <a
-                    href={`sms:${m.player.cell}?body=${encodeURIComponent(m.body)}`}
+                    href={buildSmsUrl([m.player.cell], m.body)}
                     style={{ ...iconBtn(false), flexShrink: 0, textDecoration: 'none' }}
                     title={`Text ${m.player.name}`}
                   >
@@ -656,7 +710,7 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
   const teamPrefix = match?.team_name ? `🎾 ${match.team_name}\n\n` : '';
   const reminderMsg = `${teamPrefix}Reminder: You're playing ${lineLabel} vs ${match?.opponent_name || 'TBD'} on ${lineDate ? formatDate(lineDate) : 'TBD'}${lineTime ? ` at ${formatTime(lineTime)}` : ''}.`;
 
-  const handleReminderSms = () => window.open(`sms:${lineCells.join(',')}?body=${encodeURIComponent(reminderMsg)}`);
+  const handleReminderSms = () => openGroupSms(lineCells, reminderMsg);
   const handleReminderCopy = () => copyText(reminderMsg);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -667,10 +721,10 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
       {/* Left: title, date, players, score — all stacked tightly */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>{lineLabel}</div>
-        {!!useCustomDates && (
+        {(lineDate || lineTime) && (
           <div className="text-muted text-sm" style={{ marginBottom: 6 }}>
-            {line.custom_date ? formatDate(line.custom_date) : 'No date set'}
-            {line.custom_time ? ` at ${formatTime(line.custom_time)}` : ''}
+            {lineDate ? formatDate(lineDate) : 'No date set'}
+            {lineTime ? ` at ${formatTime(lineTime)}` : ''}
           </div>
         )}
         <div style={{ marginBottom: line.score ? 8 : 0 }}>
@@ -726,16 +780,19 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
 
 export default function MatchDetail() {
   const { id } = useParams();
+  const { teamSeasons } = useContext(TeamContext);
   const [match, setMatch] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [opponents, setOpponents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [selectedLine, setSelectedLine] = useState(null);
   const [smsMessages, setSmsMessages] = useState([]);
+  const [editModal, setEditModal] = useState(false);
 
   const load = useCallback(async () => {
-    const [m, p] = await Promise.all([matchesApi.get(id), playersApi.list()]);
-    setMatch(m); setPlayers(p); setLoading(false);
+    const [m, p, o] = await Promise.all([matchesApi.get(id), playersApi.list(), opponentsApi.list()]);
+    setMatch(m); setPlayers(p); setOpponents(o); setLoading(false);
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -759,8 +816,7 @@ export default function MatchDetail() {
   };
 
   const handleCopyTeamLink = () => {
-    const link = `${window.location.origin}/availability/match/${id}`;
-    copyText(link);
+    copyText(availSmsBody);
   };
 
   const handleNotifyAssignment = async () => {
@@ -780,7 +836,7 @@ export default function MatchDetail() {
 
   const teamLink = `${window.location.origin}/availability/match/${id}`;
   const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
-  const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}: ${teamLink}`;
+  const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${timeStr ? ` at ${timeStr}` : ''}: ${teamLink}`;
 
   // Build lineup text (same logic as AssignmentNotifyModal)
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
@@ -807,13 +863,13 @@ export default function MatchDetail() {
     lineupText = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`, ...assignedLines.map(lineLabel)].join('\n');
   }
 
-  const handleTextTeamAvail = () => {
-    window.open(`sms:&body=${encodeURIComponent(availSmsBody)}`);
-  };
+  const allActiveCells = players.filter(p => p.active && p.cell).map(p => p.cell);
+  const assignedLineCells = [...new Set(
+    assignedLines.flatMap(l => l.players.map(p => p.cell).filter(Boolean))
+  )];
 
-  const handleTextLineup = () => {
-    window.open(`sms:&body=${encodeURIComponent(lineupText)}`);
-  };
+  const handleTextTeamAvail = () => openGroupSms(allActiveCells, availSmsBody);
+  const handleTextLineup = () => openGroupSms(assignedLineCells, lineupText);
 
   const handleCopyLineup = () => {
     copyText(lineupText);
@@ -857,17 +913,14 @@ export default function MatchDetail() {
                 <span className="btn-label">Mark Complete</span>
               </button>
             )}
-            {match.status !== 'cancelled' && (
-              <button
-                className="match-action-btn"
-                style={{ background: 'white', color: '#e53e3e', border: '1.5px solid #e53e3e' }}
-                onClick={() => { if (confirm('Are you sure you want to cancel this match?')) handleStatusChange('cancelled'); }}
-                title="Cancel Match"
-              >
-                <span className="btn-icon">✕</span>
-                <span className="btn-label">Cancel Match</span>
-              </button>
-            )}
+            <button
+              className="match-action-btn btn-outline"
+              onClick={() => setEditModal(true)}
+              title="Edit Match"
+            >
+              <span className="btn-icon">✏</span>
+              <span className="btn-label">Edit Match</span>
+            </button>
             {match.status === 'cancelled' && (
               <button
                 className="match-action-btn btn-outline"
@@ -890,6 +943,7 @@ export default function MatchDetail() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="card-title">Player Availability</div>
                 <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
+                <a href={teamLink} target="_blank" rel="noopener noreferrer" className="text-sm" style={{ color: '#3182ce', wordBreak: 'break-all' }}>{teamLink}</a>
               </div>
               <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} variant="yellow" />
             </div>
@@ -956,6 +1010,28 @@ export default function MatchDetail() {
       {modal === 'assign-sms' && (
         <Modal title="Send Line-ups" wide onClose={() => setModal(null)}>
           <AssignmentNotifyModal match={match} messages={smsMessages} onClose={() => setModal(null)} />
+        </Modal>
+      )}
+
+      {editModal && (
+        <Modal title="Edit Match" wide onClose={() => setEditModal(false)}>
+          <MatchForm
+            initial={match}
+            seasons={teamSeasons || []}
+            opponents={opponents}
+            onAddOpponent={async (name) => {
+              const o = await opponentsApi.create({ name });
+              setOpponents(prev => [...prev, o]);
+              return o;
+            }}
+            onSave={async (formData) => {
+              await matchesApi.update(id, formData);
+              setEditModal(false);
+              load();
+            }}
+            onCancel={() => setEditModal(false)}
+            onCancelMatch={match.status !== 'cancelled' ? () => handleStatusChange('cancelled') : undefined}
+          />
         </Modal>
       )}
     </div>

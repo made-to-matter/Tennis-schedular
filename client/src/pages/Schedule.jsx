@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { matches as matchesApi, seasons as seasonsApi, opponents as opponentsApi } from '../api';
 import { TeamContext } from '../App';
+import MatchForm from '../components/MatchForm';
 
 function Modal({ title, onClose, children, wide }) {
   return (
@@ -36,166 +37,6 @@ const formatTime = (t) => {
   return `${hour > 12 ? hour - 12 : hour || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
 
-function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponent }) {
-  const isEdit = !!initial;
-  const [form, setForm] = useState(initial ? { ...initial, lines: initial.lines || [] } : {
-    season_id: '', opponent_id: '', match_date: '', match_time: '',
-    is_home: 1, away_address: '', use_custom_dates: 0, notes: '',
-    lines: []
-  });
-  const [newOpponent, setNewOpponent] = useState('');
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const handleSeasonChange = (seasonId) => {
-    set('season_id', seasonId);
-    if (seasonId) {
-      const s = seasons.find(s => s.id === parseInt(seasonId));
-      if (s && s.line_templates.length > 0 && form.lines.length === 0) {
-        set('lines', s.line_templates.map(l => ({ line_number: l.line_number, line_type: l.line_type })));
-      }
-      if (s && s.default_time && !form.match_time) set('match_time', s.default_time);
-    }
-  };
-
-  const addLine = () => {
-    const same = form.lines.filter(l => l.line_type === 'doubles');
-    const next = same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
-    set('lines', [...form.lines, { line_number: next, line_type: 'doubles', custom_date: '', custom_time: '' }]);
-  };
-
-  const updateLine = (idx, field, val) => {
-    const updated = [...form.lines];
-    if (field === 'line_type') {
-      const same = updated.filter((l, i) => i !== idx && l.line_type === val);
-      const newNum = same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
-      updated[idx] = { ...updated[idx], line_type: val, line_number: newNum };
-    } else {
-      updated[idx] = { ...updated[idx], [field]: field === 'line_number' ? parseInt(val) : val };
-    }
-    set('lines', updated);
-  };
-
-  const removeLine = (idx) => set('lines', form.lines.filter((_, i) => i !== idx));
-
-  return (
-    <>
-      <div className="modal-body">
-        <div className="grid-2">
-          <div className="form-group">
-            <label className="form-label">Season</label>
-            <select className="form-control" value={form.season_id || ''} onChange={e => handleSeasonChange(e.target.value)}>
-              <option value="">No Season</option>
-              {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Opponent Club</label>
-            <div className="flex gap-2">
-              <select className="form-control" value={form.opponent_id || ''} onChange={e => set('opponent_id', e.target.value)}>
-                <option value="">Select opponent</option>
-                {opponents.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-            </div>
-            <div className="flex gap-2 mt-2">
-              <input className="form-control" placeholder="Or add new..." value={newOpponent} onChange={e => setNewOpponent(e.target.value)} />
-              <button className="btn btn-outline btn-sm" style={{ whiteSpace: 'nowrap' }} onClick={async () => { if (newOpponent) { const o = await onAddOpponent(newOpponent); set('opponent_id', o.id); setNewOpponent(''); } }}>Add</button>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid-2">
-          <div className="form-group">
-            <label className="form-label">Match Date *</label>
-            <input className="form-control" type="date" value={form.match_date} onChange={e => set('match_date', e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Start Time</label>
-            <input className="form-control" type="time" value={form.match_time || ''} onChange={e => set('match_time', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="form-group">
-          <div className="flex gap-4">
-            <label className="form-check">
-              <input type="radio" checked={!!form.is_home} onChange={() => set('is_home', 1)} /> Home
-            </label>
-            <label className="form-check">
-              <input type="radio" checked={!form.is_home} onChange={() => set('is_home', 0)} /> Away
-            </label>
-          </div>
-        </div>
-
-        {!form.is_home && (
-          <div className="form-group">
-            <label className="form-label">Away Venue Address</label>
-            <input className="form-control" value={form.away_address || ''} onChange={e => set('away_address', e.target.value)} placeholder="Club name, street, city..." />
-          </div>
-        )}
-
-        <div className="form-group">
-          <label className="form-check">
-            <input type="checkbox" checked={!!form.use_custom_dates} onChange={e => set('use_custom_dates', e.target.checked ? 1 : 0)} />
-            Use custom date/time per line (e.g., different courts play on different days)
-          </label>
-        </div>
-
-        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
-          <div className="flex justify-between items-center mb-2">
-            <span className="section-title" style={{ marginBottom: 0 }}>Lines</span>
-            <button className="btn btn-outline btn-sm" onClick={addLine}>+ Add Line</button>
-          </div>
-          {form.lines.length === 0 && <p className="text-muted text-sm">No lines. Add lines or select a season with a template.</p>}
-          {[...form.lines.map((line, idx) => ({ ...line, _idx: idx }))]
-            .sort((a, b) => {
-              if (a.line_type !== b.line_type) return a.line_type === 'singles' ? -1 : 1;
-              return a.line_number - b.line_number;
-            })
-            .map(line => (
-            <div key={line._idx} className="line-card">
-              <div className="flex gap-2 items-center">
-                <div style={{ flex: '0 0 80px' }}>
-                  <label className="form-label">Line #</label>
-                  <input className="form-control" type="number" min="1" value={line.line_number} onChange={e => updateLine(line._idx, 'line_number', e.target.value)} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label className="form-label">Type</label>
-                  <select className="form-control" value={line.line_type} onChange={e => updateLine(line._idx, 'line_type', e.target.value)}>
-                    <option value="singles">Singles</option>
-                    <option value="doubles">Doubles</option>
-                  </select>
-                </div>
-                {form.use_custom_dates && <>
-                  <div style={{ flex: 1 }}>
-                    <label className="form-label">Date</label>
-                    <input className="form-control" type="date" value={line.custom_date || ''} onChange={e => updateLine(line._idx, 'custom_date', e.target.value)} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label className="form-label">Time</label>
-                    <input className="form-control" type="time" value={line.custom_time || ''} onChange={e => updateLine(line._idx, 'custom_time', e.target.value)} />
-                  </div>
-                </>}
-                <div style={{ flex: '0 0 auto', alignSelf: 'flex-end' }}>
-                  <button className="btn btn-danger btn-sm" onClick={() => removeLine(line._idx)}>✕</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="form-group mt-3">
-          <label className="form-label">Notes</label>
-          <textarea className="form-control" rows={2} value={form.notes || ''} onChange={e => set('notes', e.target.value)} placeholder="Optional notes..." />
-        </div>
-      </div>
-      <div className="modal-footer">
-        <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => form.match_date && onSave(form)}>
-          {isEdit ? 'Update Match' : 'Create Match'}
-        </button>
-      </div>
-    </>
-  );
-}
 
 export default function Schedule() {
   const { activeTeam, activeSeason } = useContext(TeamContext);
@@ -259,7 +100,7 @@ export default function Schedule() {
       {/* Action row — Manage stretches, Edit and delete are compact */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #f0f4f8', paddingTop: 12 }}>
         <Link to={`/matches/${m.id}`} className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }}>Manage</Link>
-        <button className="btn btn-outline btn-sm" style={{ flexShrink: 0 }} onClick={() => { setEditing(m); setModal('form'); }}>Edit</button>
+        <button className="btn btn-outline btn-sm" style={{ flexShrink: 0 }} onClick={async () => { const full = await matchesApi.get(m.id); setEditing(full); setModal('form'); }}>Edit</button>
         <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: '1px solid #e2e8f0', cursor: 'pointer', color: '#fc8181', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, flexShrink: 0 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button>
@@ -271,7 +112,14 @@ export default function Schedule() {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h1 className="page-title" style={{ marginBottom: 0 }}>Schedule</h1>
-        <button className="btn btn-primary btn-sm" onClick={() => { setEditing(null); setModal('form'); }}>+ New Match</button>
+        <div className="flex items-center gap-2">
+          {!activeTeam && <span className="text-muted text-sm">Select a team first</span>}
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={!activeTeam}
+            onClick={() => { setEditing(null); setModal('form'); }}
+          >+ New Match</button>
+        </div>
       </div>
 
       <div className="card" style={{ padding: '10px 14px' }}>
