@@ -95,7 +95,7 @@ const LinkIcon = ({ size = 15 }) => (
 );
 
 // Single button → dropdown with SMS + Copy options (mobile-friendly)
-function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant }) {
+function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant, smsOptions }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef(null);
@@ -114,6 +114,11 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
 
   const handleSms = () => {
     onSms();
+    setOpen(false);
+  };
+
+  const handleSmsOption = (fn) => {
+    fn();
     setOpen(false);
   };
 
@@ -148,7 +153,21 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
           boxShadow: '0 4px 24px rgba(0,0,0,0.14)', border: '1px solid #e2e8f0',
           minWidth: 200, overflow: 'hidden',
         }}>
-          {hasSms && onSms && (
+          {smsOptions ? smsOptions.map((opt, i) => (
+            <button
+              key={i}
+              onClick={() => handleSmsOption(opt.handler)}
+              style={{
+                width: '100%', padding: '14px 18px', background: 'none', border: 'none',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+                fontSize: '0.95rem', color: '#2d3748', textAlign: 'left',
+                borderBottom: '1px solid #f0f0f0',
+              }}
+            >
+              <SmsIcon size={18} />
+              {opt.label}
+            </button>
+          )) : hasSms && onSms && (
             <button
               onClick={handleSms}
               style={{
@@ -870,6 +889,7 @@ export default function MatchDetail() {
 
   const handleTextTeamAvail = () => openGroupSms(allActiveCells, availSmsBody);
   const handleTextLineup = () => openGroupSms(assignedLineCells, lineupText);
+  const handleTextTeamLineup = () => openGroupSms(allActiveCells, lineupText);
 
   const handleCopyLineup = () => {
     copyText(lineupText);
@@ -961,7 +981,15 @@ export default function MatchDetail() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">Lines & Assignments</div>
-            <ShareMenu label="Send Line-ups" onSms={handleTextLineup} onCopy={handleCopyLineup} variant="yellow" />
+            <ShareMenu
+              label="Send Line-ups"
+              smsOptions={[
+                { label: 'Send to Lines', handler: handleTextLineup },
+                { label: 'Send to Team', handler: handleTextTeamLineup },
+              ]}
+              onCopy={handleCopyLineup}
+              variant="yellow"
+            />
           </div>
           {match.lines.length === 0 ? (
             <p className="text-muted text-sm">No lines configured for this match.</p>
