@@ -66,6 +66,43 @@ const formatTime = (t) => {
   return `${hour > 12 ? hour - 12 : hour || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
 
+function buildLineupText(match) {
+  const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
+  // Singles first, then doubles, each sorted by line number
+  const sorted = [...assignedLines].sort((a, b) => {
+    const order = t => t === 'singles' ? 0 : 1;
+    if (order(a.line_type) !== order(b.line_type)) return order(a.line_type) - order(b.line_type);
+    return (a.line_number || 0) - (b.line_number || 0);
+  });
+  const lineEntry = (l) => {
+    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}:`;
+    const names = [...new Set(l.players.map(p => p.name))].join(' & ');
+    return `${label}\n${names}`;
+  };
+  const teamPrefix = match.team_name ? `🎾 ${match.team_name}` : '';
+  const parts = [];
+  if (teamPrefix) { parts.push(teamPrefix); parts.push(''); }
+  if (match.use_custom_dates) {
+    const groups = [];
+    const seen = new Map();
+    for (const l of sorted) {
+      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
+      if (!seen.has(key)) { seen.set(key, groups.length); groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] }); }
+      else groups[seen.get(key)].lines.push(l);
+    }
+    parts.push(`Lineup vs ${match.opponent_name || 'TBD'}`);
+    for (const g of groups) {
+      parts.push('');
+      parts.push(`${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
+      for (const l of g.lines) { parts.push(''); parts.push(lineEntry(l)); }
+    }
+  } else {
+    parts.push(`Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}`);
+    for (const l of sorted) { parts.push(''); parts.push(lineEntry(l)); }
+  }
+  return parts.join('\n');
+}
+
 // Shared icons
 const SmsIcon = ({ size = 15 }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -592,41 +629,8 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
   const [copied, setCopied] = useState(false);
   const [textSent, setTextSent] = useState(false);
 
+  const lineupText = buildLineupText(match);
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
-
-  const lineLabel = (l) => {
-    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}`;
-    return `${label}: ${[...new Set(l.players.map(p => p.name))].join(' & ')}`;
-  };
-
-  let lineupText;
-  if (match.use_custom_dates) {
-    const groups = [];
-    const seen = new Map();
-    for (const l of assignedLines) {
-      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
-      if (!seen.has(key)) {
-        seen.set(key, groups.length);
-        groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] });
-      } else {
-        groups[seen.get(key)].lines.push(l);
-      }
-    }
-    const parts = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'}:`];
-    for (const g of groups) {
-      const dateLabel = g.date ? formatDate(g.date) : 'Date TBD';
-      const timeLabel = g.time ? ` at ${formatTime(g.time)}` : '';
-      parts.push(`\n${dateLabel}${timeLabel}`);
-      for (const l of g.lines) parts.push(`  ${lineLabel(l)}`);
-    }
-    lineupText = parts.join('\n');
-  } else {
-    lineupText = [
-      `${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`,
-      ...assignedLines.map(lineLabel),
-    ].join('\n');
-  }
 
   const copyLineup = () => {
     copyText(lineupText).then(() => {
@@ -857,30 +861,8 @@ export default function MatchDetail() {
   const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
   const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${timeStr ? ` at ${timeStr}` : ''}: ${teamLink}`;
 
-  // Build lineup text (same logic as AssignmentNotifyModal)
+  const lineupText = buildLineupText(match);
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
-  const lineLabel = (l) => {
-    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}`;
-    return `${label}: ${[...new Set(l.players.map(p => p.name))].join(' & ')}`;
-  };
-  let lineupText;
-  if (match.use_custom_dates) {
-    const groups = [];
-    const seen = new Map();
-    for (const l of assignedLines) {
-      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
-      if (!seen.has(key)) { seen.set(key, groups.length); groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] }); }
-      else groups[seen.get(key)].lines.push(l);
-    }
-    const parts = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'}:`];
-    for (const g of groups) {
-      parts.push(`\n${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
-      for (const l of g.lines) parts.push(`  ${lineLabel(l)}`);
-    }
-    lineupText = parts.join('\n');
-  } else {
-    lineupText = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`, ...assignedLines.map(lineLabel)].join('\n');
-  }
 
   const allActiveCells = players.filter(p => p.active && p.cell).map(p => p.cell);
   const assignedLineCells = [...new Set(
