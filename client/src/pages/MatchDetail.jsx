@@ -79,9 +79,9 @@ function buildLineupText(match) {
     const names = [...new Set(l.players.map(p => p.name))].join(' & ');
     return `${label}\n${names}`;
   };
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name}` : '';
-  const parts = [];
-  if (teamPrefix) { parts.push(teamPrefix); parts.push(''); }
+  const opponent = match.opponent_name || 'TBD';
+  const headline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}` : `Lineup vs ${opponent}`;
+  const parts = [headline];
   if (match.use_custom_dates) {
     const groups = [];
     const seen = new Map();
@@ -90,14 +90,14 @@ function buildLineupText(match) {
       if (!seen.has(key)) { seen.set(key, groups.length); groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] }); }
       else groups[seen.get(key)].lines.push(l);
     }
-    parts.push(`Lineup vs ${match.opponent_name || 'TBD'}`);
     for (const g of groups) {
       parts.push('');
-      parts.push(`${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
+      parts.push(`📅 ${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
       for (const l of g.lines) { parts.push(''); parts.push(lineEntry(l)); }
     }
   } else {
-    parts.push(`Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}`);
+    parts.push('');
+    parts.push(`📅 ${formatDate(match.match_date)}${match.match_time ? ` at ${formatTime(match.match_time)}` : ''}`);
     for (const l of sorted) { parts.push(''); parts.push(lineEntry(l)); }
   }
   return parts.join('\n');
@@ -537,9 +537,10 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
   const [saving, setSaving] = useState(false);
 
   const teamLink = `${window.location.origin}/availability/match/${matchId}`;
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name} — ` : '';
+  const opponent = match.opponent_name || 'TBD';
+  const headline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
   const matchTime = match.match_time ? ` at ${formatTime(match.match_time)}` : '';
-  const matchDesc = `${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${matchTime}`;
+  const datePart = `📅 ${formatDate(match.match_date)}${matchTime}`;
 
   const byPlayer = match.availability.reduce((acc, a) => {
     if (!acc[a.player_id]) acc[a.player_id] = { ...a };
@@ -582,7 +583,7 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
     );
   };
 
-  const remindMsg = `${teamPrefix}Please mark your availability for ${matchDesc}: ${teamLink}`;
+  const remindMsg = `${headline}Please mark your availability${match.team_name ? '' : ` vs ${opponent}`} on ${datePart}: ${teamLink}`;
   const noResponseCells = noResponse.filter(p => p.cell).map(p => p.cell);
 
   const handleRemindSms = () => openGroupSms(noResponseCells, remindMsg);
@@ -730,8 +731,12 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
   const lineLabel = `${line.line_type.charAt(0).toUpperCase() + line.line_type.slice(1)} Line ${line.line_number}`;
   const lineDate = useCustomDates && line.custom_date ? line.custom_date : match?.match_date;
   const lineTime = useCustomDates && line.custom_time ? line.custom_time : match?.match_time;
-  const teamPrefix = match?.team_name ? `🎾 ${match.team_name}\n\n` : '';
-  const reminderMsg = `${teamPrefix}Reminder: You're playing ${lineLabel} vs ${match?.opponent_name || 'TBD'} on ${lineDate ? formatDate(lineDate) : 'TBD'}${lineTime ? ` at ${formatTime(lineTime)}` : ''}.`;
+  const opp = match?.opponent_name || 'TBD';
+  const reminderHeadline = match?.team_name ? `🎾 ${match.team_name} vs ${opp}\n\n` : '';
+  const whenPart = `📅 ${lineDate ? formatDate(lineDate) : 'TBD'}${lineTime ? ` at ${formatTime(lineTime)}` : ''}`;
+  const reminderMsg = match?.team_name
+    ? `${reminderHeadline}Reminder: You're playing ${lineLabel} on ${whenPart}.`
+    : `${reminderHeadline}Reminder: You're playing ${lineLabel} vs ${opp} on ${whenPart}.`;
 
   const handleReminderSms = () => openGroupSms(lineCells, reminderMsg);
   const handleReminderCopy = () => copyText(reminderMsg);
@@ -858,8 +863,10 @@ export default function MatchDetail() {
   const respondedCount = new Set(match.availability.map(a => a.player_id)).size;
 
   const teamLink = `${window.location.origin}/availability/match/${id}`;
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
-  const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${timeStr ? ` at ${timeStr}` : ''}: ${teamLink}`;
+  const opponent = match.opponent_name || 'TBD';
+  const availHeadline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
+  const datePart = `📅 ${formatDate(match.match_date)}${timeStr ? ` at ${timeStr}` : ''}`;
+  const availSmsBody = `${availHeadline}Mark your availability${match.team_name ? '' : ` vs ${opponent}`} on ${datePart}: ${teamLink}`;
 
   const lineupText = buildLineupText(match);
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);

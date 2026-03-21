@@ -227,11 +227,11 @@ router.post('/notify/:matchId', async (req, res) => {
     const link = `${baseUrl}/availability/match/${req.params.matchId}`;
     const opponent = match.opponent_name || 'TBD';
     const dateStr = match.match_date;
-    const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
+    const headline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
 
     const messages = players.map(player => ({
       player,
-      message: `${teamPrefix}Hi ${player.name}! Tennis match vs ${opponent} on ${dateStr}. Mark your availability: ${link}`,
+      message: `${headline}Hi ${player.name}! Tennis match${match.team_name ? '' : ` vs ${opponent}`} on 📅 ${dateStr}. Mark your availability: ${link}`,
     }));
 
     res.json({ link, messages });
@@ -287,7 +287,8 @@ router.post('/notify-assignment/:matchId', async (req, res) => {
       [match.id]
     )).rows;
     const messages = [];
-    const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
+    const opponent = match.opponent_name || 'TBD';
+    const headline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
 
     for (const line of lines) {
       const players = (await query(`
@@ -301,7 +302,6 @@ router.post('/notify-assignment/:matchId', async (req, res) => {
       if (players.length === 0) continue;
 
       const lineLabel = `${line.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${line.line_number}`;
-      const opponent = match.opponent_name || 'TBD';
       const dateStr = line.custom_date || match.match_date;
       const timeStr = line.custom_time || match.match_time || '';
       const location = match.is_home ? 'Home' : `Away at ${match.away_address || 'TBD'}`;
@@ -310,7 +310,10 @@ router.post('/notify-assignment/:matchId', async (req, res) => {
         if (!player.cell) continue;
         const partners = players.filter(p => p.id !== player.id).map(p => p.name).join(', ');
         const partnerStr = partners ? ` Partner: ${partners}.` : '';
-        const body = `${teamPrefix}Hi ${player.name}! You're playing ${lineLabel} vs ${opponent} on ${dateStr}${timeStr ? ' at ' + timeStr : ''} (${location}).${partnerStr} Good luck!`;
+        const playingPart = match.team_name
+          ? `You're playing ${lineLabel} on 📅 ${dateStr}${timeStr ? ' at ' + timeStr : ''}`
+          : `You're playing ${lineLabel} vs ${opponent} on 📅 ${dateStr}${timeStr ? ' at ' + timeStr : ''}`;
+        const body = `${headline}Hi ${player.name}! ${playingPart} (${location}).${partnerStr} Good luck!`;
         messages.push({ player, body });
       }
     }
