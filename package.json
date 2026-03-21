@@ -2,15 +2,17 @@
   "name": "tennis-schedular",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "dependencies": {
     "serverless-http": "^3.2.0"
   },
   "scripts": {
-    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
-    "dev": "npm run dev:server & npm run dev:client",
-    "dev:server": "npm run dev --prefix server",
-    "dev:client": "npm run dev --prefix client",
-    "build": "npm run build --prefix client",
-    "start": "npm start --prefix server"
+    "install:all": "pnpm install",
+    "dev": "pnpm -r --parallel --if-present run dev",
+    "dev:server": "pnpm --filter tennis-schedular-server dev",
+    "dev:client": "pnpm --filter tennis-schedular-client dev",
+    "build": "pnpm --filter tennis-schedular-client run build",
+    "start": "pnpm --filter tennis-schedular-server start",
+    "migrate": "pnpm --filter tennis-schedular-server run migrate"
   }
 }

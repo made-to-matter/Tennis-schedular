@@ -1,6 +1,6 @@
 -- Tennis Scheduler — PostgreSQL schema (Supabase)
 -- Run once: psql $DATABASE_URL -f server/migrate.sql
--- Or: npm run migrate --prefix server
+-- Or: pnpm run migrate (from repo root)
 
 -- Captain-scoped tables (captain_id references Supabase auth.users)
 CREATE TABLE IF NOT EXISTS teams (

@@ -5,15 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# From repo root
-npm run dev              # Run frontend + backend in parallel
-npm run dev:server       # Backend only (nodemon, port 3001)
-npm run dev:client       # Frontend only (Vite, port 5175)
-npm run build            # Build frontend to client/dist
-npm run install:all      # Install all dependencies
+# From repo root (pnpm workspace — use corepack enable if pnpm is missing)
+pnpm run dev              # Run frontend + backend in parallel
+pnpm run dev:server       # Backend only (nodemon, port 3001)
+pnpm run dev:client       # Frontend only (Vite, port 5175)
+pnpm run build            # Build frontend to client/dist
+pnpm install              # Install all workspace dependencies
 
 # Database migration (run from repo root)
-npm run migrate --prefix server
+pnpm run migrate
 ```
 
 ## Architecture
@@ -54,7 +54,7 @@ npm run migrate --prefix server
 ## Deploy
 
 1. `git push origin claude/tennis-scheduling-app-7Ks4i`
-2. `cd client && npm run build`
+2. `pnpm run build` (from repo root; output in `client/dist`)
 3. `npx netlify-cli deploy --prod --dir=dist --no-build`
 
 Backend/DB lives in Supabase — no separate deploy step needed for schema changes (run migration manually).

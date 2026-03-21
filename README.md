@@ -25,7 +25,7 @@ A full-stack web app for tennis coaches to manage team schedules, player availab
 ### 1. Install dependencies
 
 ```bash
-npm run install:all
+pnpm install
 ```
 
 ### 2. Configure environment (optional — for SMS)
@@ -38,7 +38,7 @@ cp server/.env.example server/.env
 ### 3. Run in development
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 - Frontend: http://localhost:5173
@@ -47,8 +47,8 @@ npm run dev
 ### 4. Production build
 
 ```bash
-npm run build
-npm start
+pnpm run build
+pnpm start
 ```
 
 ## SMS Setup (Twilio)

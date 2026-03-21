@@ -20,13 +20,15 @@
 
 ## Commands
 
-- Install all dependencies: `npm run install:all`
-- Run both apps in development: `npm run dev`
-- Run only the API: `npm run dev:server`
-- Run only the client: `npm run dev:client`
-- Build the client: `npm run build`
-- Start the server in production mode: `npm start`
-- Run database migration script: `npm run migrate --prefix server`
+Uses [pnpm](https://pnpm.io/) with a workspace (`pnpm-workspace.yaml`). Run commands from the repo root; no config in parent directories.
+
+- Install all dependencies: `pnpm install` (or `pnpm run install:all`)
+- Run both apps in development: `pnpm run dev`
+- Run only the API: `pnpm run dev:server`
+- Run only the client: `pnpm run dev:client`
+- Build the client: `pnpm run build`
+- Start the server in production mode: `pnpm start`
+- Run database migration script: `pnpm run migrate`
 
 ## Environment
 
