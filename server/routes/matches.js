@@ -2,6 +2,69 @@ const express = require('express');
 const router = express.Router();
 const { query, getClient } = require('../database');
 
+async function loadDateOptions(matchId) {
+  return (await query(
+    'SELECT * FROM match_date_options WHERE match_id = $1 ORDER BY sort_order, id',
+    [matchId]
+  )).rows;
+}
+
+function sameOptionSlot(row, inc) {
+  if (row.option_date !== inc.option_date) return false;
+  const t1 = row.option_time == null || row.option_time === '' ? null : row.option_time;
+  const t2 = inc.option_time == null || inc.option_time === '' ? null : inc.option_time;
+  return t1 === t2;
+}
+
+/** Update options in place when date/time match so IDs stay stable (preserves player_availability FKs). */
+async function replaceDateOptions(client, matchId, dateOptions) {
+  if (!Array.isArray(dateOptions)) {
+    await client.query('DELETE FROM match_date_options WHERE match_id = $1', [matchId]);
+    return;
+  }
+
+  const normalized = dateOptions
+    .filter(o => o && o.option_date)
+    .map((o, i) => ({
+      option_date: o.option_date,
+      option_time: o.option_time || null,
+      sort_order: o.sort_order != null ? o.sort_order : i,
+    }));
+
+  const { rows: existing } = await client.query(
+    'SELECT * FROM match_date_options WHERE match_id = $1',
+    [matchId]
+  );
+
+  for (const inc of normalized) {
+    const hit = existing.find(ex => sameOptionSlot(ex, inc));
+    if (hit) {
+      await client.query(
+        'UPDATE match_date_options SET sort_order = $1 WHERE id = $2',
+        [inc.sort_order, hit.id]
+      );
+    }
+  }
+
+  for (const ex of existing) {
+    const keep = normalized.some(inc => sameOptionSlot(ex, inc));
+    if (!keep) {
+      await client.query('DELETE FROM match_date_options WHERE id = $1', [ex.id]);
+    }
+  }
+
+  for (const inc of normalized) {
+    const had = existing.some(ex => sameOptionSlot(ex, inc));
+    if (!had) {
+      await client.query(
+        `INSERT INTO match_date_options (match_id, option_date, option_time, sort_order)
+         VALUES ($1, $2, $3, $4)`,
+        [matchId, inc.option_date, inc.option_time, inc.sort_order]
+      );
+    }
+  }
+}
+
 async function getMatchFull(id) {
   const matchResult = await query(`
     SELECT m.*, o.name as opponent_name, o.address as opponent_address, s.name as season_name, s.num_sets as season_num_sets, s.last_set_tiebreak as season_last_set_tiebreak, t.name as team_name
@@ -13,6 +76,8 @@ async function getMatchFull(id) {
   `, [id]);
   const match = matchResult.rows[0];
   if (!match) return null;
+
+  match.date_options = await loadDateOptions(id);
 
   match.lines = (await query(
     'SELECT * FROM match_lines WHERE match_id = $1 ORDER BY line_number',
@@ -90,7 +155,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const {
     season_id, opponent_id, match_date, match_time,
-    is_home, away_address, use_custom_dates, notes, lines, team_id
+    is_home, away_address, notes, lines, team_id, date_options
   } = req.body;
 
   if (!match_date) return res.status(400).json({ error: 'match_date is required' });
@@ -100,16 +165,17 @@ router.post('/', async (req, res) => {
 
     const result = await client.query(`
       INSERT INTO matches (season_id, opponent_id, match_date, match_time, is_home, away_address, use_custom_dates, notes, team_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8)
       RETURNING id
     `, [
       season_id || null, opponent_id || null, match_date, match_time || null,
       is_home !== undefined ? is_home : 1, away_address || null,
-      use_custom_dates ? 1 : 0, notes || null, team_id || null
+      notes || null, team_id || null
     ]);
     const matchId = result.rows[0].id;
 
-    // If season provided but no lines, use season templates
+    await replaceDateOptions(client, matchId, date_options);
+
     let lineList = lines;
     if (!lineList && season_id) {
       lineList = (await client.query(
@@ -121,8 +187,9 @@ router.post('/', async (req, res) => {
     if (Array.isArray(lineList)) {
       for (const l of lineList) {
         await client.query(
-          'INSERT INTO match_lines (match_id, line_number, line_type, custom_date, custom_time) VALUES ($1, $2, $3, $4, $5)',
-          [matchId, l.line_number, l.line_type, l.custom_date || null, l.custom_time || null]
+          `INSERT INTO match_lines (match_id, line_number, line_type, custom_date, custom_time, match_date_option_id)
+           VALUES ($1, $2, $3, NULL, NULL, NULL)`,
+          [matchId, l.line_number, l.line_type]
         );
       }
     }
@@ -141,13 +208,12 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   const {
     season_id, opponent_id, match_date, match_time,
-    is_home, away_address, use_custom_dates, notes, status, lines, team_id
+    is_home, away_address, notes, status, lines, team_id, date_options
   } = req.body;
   const client = await getClient();
   try {
     await client.query('BEGIN');
 
-    // Preserve existing team_id if not provided in body
     let resolvedTeamId = team_id !== undefined ? (team_id || null) : null;
     if (team_id === undefined) {
       const existing = (await client.query('SELECT team_id FROM matches WHERE id=$1', [req.params.id])).rows[0];
@@ -156,21 +222,26 @@ router.put('/:id', async (req, res) => {
 
     await client.query(`
       UPDATE matches SET season_id=$1, opponent_id=$2, match_date=$3, match_time=$4,
-      is_home=$5, away_address=$6, use_custom_dates=$7, notes=$8, status=$9, team_id=$10
-      WHERE id=$11
+      is_home=$5, away_address=$6, use_custom_dates=0, notes=$7, status=$8, team_id=$9
+      WHERE id=$10
     `, [
       season_id || null, opponent_id || null, match_date, match_time || null,
       is_home !== undefined ? is_home : 1, away_address || null,
-      use_custom_dates ? 1 : 0, notes || null, status || 'scheduled',
+      notes || null, status || 'scheduled',
       resolvedTeamId, req.params.id
     ]);
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'date_options') && Array.isArray(date_options)) {
+      await replaceDateOptions(client, req.params.id, date_options);
+    }
 
     if (Array.isArray(lines)) {
       await client.query('DELETE FROM match_lines WHERE match_id = $1', [req.params.id]);
       for (const l of lines) {
         await client.query(
-          'INSERT INTO match_lines (match_id, line_number, line_type, custom_date, custom_time) VALUES ($1, $2, $3, $4, $5)',
-          [req.params.id, l.line_number, l.line_type, l.custom_date || null, l.custom_time || null]
+          `INSERT INTO match_lines (match_id, line_number, line_type, custom_date, custom_time, match_date_option_id)
+           VALUES ($1, $2, $3, NULL, NULL, NULL)`,
+          [req.params.id, l.line_number, l.line_type]
         );
       }
     }
@@ -185,13 +256,33 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// PATCH update match line (custom date/time)
+// PATCH update match line (play slot + line type)
 router.patch('/:id/lines/:lineId', async (req, res) => {
-  const { custom_date, custom_time, line_type } = req.body;
+  const { match_date_option_id, line_type } = req.body;
   try {
+    const updates = [];
+    const vals = [];
+    let n = 1;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'match_date_option_id')) {
+      const optRaw = match_date_option_id;
+      const optId = optRaw === null || optRaw === '' || optRaw === undefined
+        ? null
+        : parseInt(optRaw, 10);
+      updates.push(`match_date_option_id=$${n++}`);
+      vals.push(Number.isFinite(optId) ? optId : null);
+    }
+    if (line_type !== undefined) {
+      updates.push(`line_type=$${n++}`);
+      vals.push(line_type);
+    }
+    if (updates.length === 0) {
+      const line = (await query('SELECT * FROM match_lines WHERE id = $1', [req.params.lineId])).rows[0];
+      return res.json(line);
+    }
+    vals.push(req.params.lineId, req.params.id);
     await query(
-      'UPDATE match_lines SET custom_date=$1, custom_time=$2, line_type=$3 WHERE id=$4 AND match_id=$5',
-      [custom_date || null, custom_time || null, line_type, req.params.lineId, req.params.id]
+      `UPDATE match_lines SET ${updates.join(', ')} WHERE id=$${n++} AND match_id=$${n++}`,
+      vals
     );
     const line = (await query('SELECT * FROM match_lines WHERE id = $1', [req.params.lineId])).rows[0];
     res.json(line);
