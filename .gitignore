@@ -3,6 +3,9 @@ server/node_modules/
 client/node_modules/
 server/tennis.db
 server/.env
+client/.env
+server/tennis.db-shm
+server/tennis.db-wal
 dist/
 .DS_Store
 *.log
