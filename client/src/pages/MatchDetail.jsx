@@ -198,7 +198,7 @@ const GroupPeopleIcon = ({ size = 18 }) => (
 );
 
 // Single button → dropdown with SMS + Copy options (mobile-friendly)
-function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant, smsOptions }) {
+function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant, smsOptions, smsLabel = 'Text Team' }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef(null);
@@ -281,7 +281,7 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
               }}
             >
               <SmsIcon size={18} />
-              Text Team
+              {smsLabel}
             </button>
           )}
           <button
@@ -659,8 +659,6 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
       const noResponse = players.filter(p => p.active && !respondedIds.has(p.id));
       const slotTime = slot.time ? ` at ${formatTime(slot.time)}` : '';
       const slotTitle = `${formatDate(slot.date)}${slotTime}${slot.key === 'primary' ? ' (primary)' : ''}`;
-      const remindMsg = `${headline}Please mark your availability for ${slotTitle}${match.team_name ? '' : ` vs ${opponent}`}: ${teamLink}`;
-      const noResponseCells = noResponse.filter(p => p.cell).map(p => p.cell);
       return {
         slot,
         rows,
@@ -670,8 +668,6 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
         no,
         noResponse,
         slotTitle,
-        remindMsg,
-        noResponseCells,
       };
     });
   }, [match, players]);
@@ -714,6 +710,16 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
       no_response: missingAnySlot.size,
     };
   }, [match, players]);
+
+  /** Players with zero availability rows for this match; Remind texts only them (match-level message, all dates). */
+  const neverRespondedRemind = useMemo(() => {
+    const idsWithRow = new Set((match.availability || []).map(a => Number(a.player_id)));
+    const neverPlayers = players.filter(p => p.active && !idsWithRow.has(Number(p.id)));
+    const noResponseCells = neverPlayers.filter(p => p.cell).map(p => p.cell);
+    const datePart = formatAvailabilitySmsDates(match);
+    const remindMsg = `${headline}Mark your availability${match.team_name ? '' : ` vs ${opponent}`} — ${datePart}: ${teamLink}`;
+    return { noResponseCells, remindMsg, count: neverPlayers.length };
+  }, [match.availability, match.team_name, players, headline, opponent, teamLink]);
 
   const tabs = [
     { id: 'available', label: 'Available', count: tabTotals.available },
@@ -769,25 +775,27 @@ function AvailabilityColumns({ match, players, matchId, onUpdate }) {
         ))}
       </div>
 
+      {activeTab === 'no_response' && neverRespondedRemind.count > 0 && (
+        <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-end' }}>
+          <ShareMenu
+            label="Remind"
+            smsLabel="Text Non-Replies"
+            onSms={() => openGroupSms(neverRespondedRemind.noResponseCells, neverRespondedRemind.remindMsg)}
+            onCopy={() => copyText(neverRespondedRemind.remindMsg)}
+            hasSms={neverRespondedRemind.noResponseCells.length > 0}
+            align="right"
+            variant="yellow-outline"
+          />
+        </div>
+      )}
+
       {slotPayload.map((sp) => {
-        const { slot, slotTitle, remindMsg, noResponseCells } = sp;
+        const { slot, slotTitle } = sp;
         const list = itemsForTab(sp);
         return (
           <div key={slot.key} className="avail-slot-section">
             <div className="avail-slot-header">{slotTitle}</div>
             <div className="avail-slot-body">
-              {activeTab === 'no_response' && list.length > 0 && (
-                <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-end' }}>
-                  <ShareMenu
-                    label="Remind"
-                    onSms={() => openGroupSms(noResponseCells, remindMsg)}
-                    onCopy={() => copyText(teamLink)}
-                    hasSms={noResponseCells.length > 0}
-                    align="right"
-                    variant="yellow-outline"
-                  />
-                </div>
-              )}
               {list.length === 0
                 ? <div className="text-muted text-sm" style={{ padding: '4px 0' }}>—</div>
                 : list.map(p => (
