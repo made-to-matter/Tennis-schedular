@@ -176,6 +176,13 @@ const LinkIcon = ({ size = 15 }) => (
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
   </svg>
 );
+const PencilIcon = ({ size = 18 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
 /** Two silhouettes — line-ups / assigned players */
 const TwoPeopleIcon = ({ size = 18 }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -946,7 +953,7 @@ function LineCard({ line, allPlayers, matchId, match, onAssign, onScore, onLineS
   };
 
   return (
-    <div className="line-card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+    <div className="line-card match-line-card">
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>{lineLabel}</div>
         {hasMultiDateOptions && (
@@ -996,7 +1003,7 @@ function LineCard({ line, allPlayers, matchId, match, onAssign, onScore, onLineS
       </div>
 
       {/* Right: action buttons stacked */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140, flexShrink: 0 }}>
+      <div className="match-line-card-actions">
         <button
           className={`btn btn-sm w-full ${line.players.length > 0 ? 'btn-outline' : 'btn-success'}`}
           onClick={() => onAssign(line)}
@@ -1027,6 +1034,8 @@ function LineCard({ line, allPlayers, matchId, match, onAssign, onScore, onLineS
 
 export default function MatchDetail() {
   const { id } = useParams();
+  const teamLink = `${window.location.origin}/availability/match/${id}`;
+  const availPathDisplay = `/availability/match/${id}`;
   const { teamSeasons } = useContext(TeamContext);
   const [match, setMatch] = useState(null);
   const [players, setPlayers] = useState([]);
@@ -1036,6 +1045,7 @@ export default function MatchDetail() {
   const [selectedLine, setSelectedLine] = useState(null);
   const [smsMessages, setSmsMessages] = useState([]);
   const [editModal, setEditModal] = useState(false);
+  const [availLinkCopied, setAvailLinkCopied] = useState(false);
 
   const load = useCallback(async () => {
     const [m, p, o] = await Promise.all([matchesApi.get(id), playersApi.list(), opponentsApi.list()]);
@@ -1063,10 +1073,6 @@ export default function MatchDetail() {
     load();
   };
 
-  const handleCopyTeamLink = () => {
-    copyText(availSmsBody);
-  };
-
   const handleNotifyAssignment = async () => {
     const res = await availApi.notifyAssignment(id);
     setSmsMessages(res.messages);
@@ -1084,11 +1090,20 @@ export default function MatchDetail() {
   const maybeCount = new Set(match.availability.filter(a => availNumeric(a) === 2).map(a => a.player_id)).size;
   const respondedCount = new Set(match.availability.map(a => a.player_id)).size;
 
-  const teamLink = `${window.location.origin}/availability/match/${id}`;
   const opponent = match.opponent_name || 'TBD';
   const availHeadline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
   const datePart = formatAvailabilitySmsDates(match);
   const availSmsBody = `${availHeadline}Mark your availability${match.team_name ? '' : ` vs ${opponent}`} — ${datePart}: ${teamLink}`;
+
+  const handleCopyTeamLink = () => {
+    copyText(availSmsBody);
+  };
+
+  const copyAvailabilityUrl = () => {
+    copyText(teamLink);
+    setAvailLinkCopied(true);
+    setTimeout(() => setAvailLinkCopied(false), 1500);
+  };
 
   const lineupText = buildLineupText(match);
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
@@ -1115,9 +1130,10 @@ export default function MatchDetail() {
         </h1>
       </div>
 
+      <div className="match-detail-layout">
       {/* Match Info */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+      <div className="card match-detail-info-card">
+        <div className="match-detail-info-row">
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="flex gap-2 mb-2" style={{ flexWrap: 'wrap' }}>
               <span className={`badge ${match.is_home ? 'badge-blue' : 'badge-orange'}`}>{match.is_home ? 'Home' : 'Away'}</span>
@@ -1143,7 +1159,7 @@ export default function MatchDetail() {
             )}
             {match.notes && <div className="text-muted text-sm mt-1">📝 {match.notes}</div>}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+          <div className="match-detail-info-actions">
             {match.status !== 'completed' && (
               <button
                 className="match-action-btn"
@@ -1160,7 +1176,7 @@ export default function MatchDetail() {
               onClick={() => setEditModal(true)}
               title="Edit Match"
             >
-              <span className="btn-icon">✏</span>
+              <span className="btn-icon" aria-hidden><PencilIcon size={18} /></span>
               <span className="btn-label">Edit Match</span>
             </button>
             {match.status === 'cancelled' && (
@@ -1177,17 +1193,37 @@ export default function MatchDetail() {
         </div>
       </div>
 
-      <div className="match-detail-columns">
         {/* Availability Section */}
-        <div className="card">
+        <div className="card match-detail-avail-card">
           <div style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="match-avail-header">
+              <div className="match-avail-header-main">
                 <div className="card-title">Player Availability</div>
                 <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available · {maybeCount} maybe</div>
-                <a href={teamLink} target="_blank" rel="noopener noreferrer" className="text-sm" style={{ color: '#3182ce', wordBreak: 'break-all' }}>{teamLink}</a>
+                <div className="avail-link-row">
+                  <a
+                    href={teamLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm avail-link-ellipsis"
+                    title={teamLink}
+                  >
+                    {availPathDisplay}
+                  </a>
+                  <button
+                    type="button"
+                    className={`avail-link-copy-btn${availLinkCopied ? ' avail-link-copy-btn--copied' : ''}`}
+                    onClick={copyAvailabilityUrl}
+                    title={availLinkCopied ? 'Copied' : 'Copy link'}
+                    aria-label={availLinkCopied ? 'Link copied' : 'Copy availability link'}
+                  >
+                    {availLinkCopied ? <CheckIcon size={18} /> : <CopyIcon size={18} />}
+                  </button>
+                </div>
               </div>
-              <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} variant="yellow" />
+              <div className="match-avail-header-share">
+                <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} variant="yellow" />
+              </div>
             </div>
           </div>
 
@@ -1200,7 +1236,7 @@ export default function MatchDetail() {
         </div>
 
         {/* Lines Section */}
-        <div className="card">
+        <div className="card match-detail-lines-card">
           <div className="card-header">
             <div className="card-title">Lines & Assignments</div>
             <ShareMenu
