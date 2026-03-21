@@ -25,10 +25,9 @@ pnpm run migrate
 **Global state**: `TeamContext` in `App.jsx` provides `{ activeTeam, setActiveTeam, teams, activeSeason, setActiveSeason, teamSeasons, refreshTeams }` to all pages. Seasons auto-load when `activeTeam` changes.
 
 **Key data flow for a match**:
-- `matches` → has many `match_lines` (one per line, e.g. Doubles 1, Singles 1)
-- `match_lines` → has many `match_line_players` (assigned players + position)
-- `player_availability` → keyed on `(player_id, match_id, match_line_id)` — `match_line_id` can be NULL for match-level availability
-- `matches.use_custom_dates` flag enables per-line date/time overrides
+- `matches` → primary `match_date` / `match_time`; optional extra slots in `match_date_options` (additional date/time pairs for the same opponent)
+- `match_lines` → has many `match_line_players` (assigned players + position); optional `match_date_option_id` (NULL = play on primary date; otherwise FK to an extra option)
+- `player_availability` → one row per `(player_id, match_id, match_date_option_id)`; `match_date_option_id` NULL means availability for the primary date; extras use the option row id. `match_line_id` is unused for new responses (legacy column)
 
 **Seasons & lines**: Each team has seasons. Each season has `line_templates` (e.g. 3 doubles + 1 singles). When a match is created, lines are generated from the season template.
 

@@ -47,6 +47,7 @@ export default function Schedule() {
   const [modal, setModal] = useState(null);
   const [editing, setEditing] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const load = async () => {
     const params = activeTeam ? { team_id: activeTeam.id } : {};
@@ -63,9 +64,15 @@ export default function Schedule() {
     setModal(null); setEditing(null); load();
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this match?')) return;
-    await matchesApi.delete(id); load();
+  const confirmDeleteMatch = async () => {
+    if (!pendingDelete) return;
+    try {
+      await matchesApi.delete(pendingDelete.id);
+      setPendingDelete(null);
+      load();
+    } catch (err) {
+      alert('Could not delete match: ' + (err.response?.data?.error || err.message));
+    }
   };
 
   const handleAddOpponent = async (name) => {
@@ -101,7 +108,7 @@ export default function Schedule() {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid #f0f4f8', paddingTop: 12 }}>
         <Link to={`/matches/${m.id}`} className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }}>Manage</Link>
         <button className="btn btn-outline btn-sm" style={{ flexShrink: 0 }} onClick={async () => { const full = await matchesApi.get(m.id); setEditing(full); setModal('form'); }}>Edit</button>
-        <button onClick={() => handleDelete(m.id)} title="Delete match" style={{ background: 'none', border: '1px solid #e2e8f0', cursor: 'pointer', color: '#fc8181', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, flexShrink: 0 }}>
+        <button onClick={() => setPendingDelete(m)} title="Delete match" style={{ background: 'none', border: '1px solid #e2e8f0', cursor: 'pointer', color: '#fc8181', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, flexShrink: 0 }}>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         </button>
       </div>
@@ -163,6 +170,29 @@ export default function Schedule() {
       {modal === 'form' && (
         <Modal title={editing ? 'Edit Match' : 'New Match'} wide onClose={() => { setModal(null); setEditing(null); }}>
           <MatchForm initial={editing} seasons={seasons} opponents={opponents} onSave={handleSave} onCancel={() => { setModal(null); setEditing(null); }} onAddOpponent={handleAddOpponent} />
+        </Modal>
+      )}
+
+      {pendingDelete && (
+        <Modal title="Delete match?" onClose={() => setPendingDelete(null)}>
+          <div className="modal-body">
+            <p style={{ marginBottom: 12 }}>
+              Delete <strong>vs {pendingDelete.opponent_name || 'TBD'}</strong>
+              {pendingDelete.match_date ? (
+                <>
+                  {' '}on {formatDate(pendingDelete.match_date)}
+                  {pendingDelete.match_time ? ` at ${formatTime(pendingDelete.match_time)}` : ''}
+                </>
+              ) : null}?
+            </p>
+            <p style={{ color: '#c53030', margin: 0, fontSize: '0.95rem', lineHeight: 1.45 }}>
+              This permanently removes the match, lineups, availability responses, and scores. This cannot be undone.
+            </p>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-outline" onClick={() => setPendingDelete(null)}>Cancel</button>
+            <button type="button" className="btn btn-danger" onClick={confirmDeleteMatch}>Delete match</button>
+          </div>
         </Modal>
       )}
     </div>

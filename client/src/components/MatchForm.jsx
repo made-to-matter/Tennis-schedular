@@ -1,12 +1,37 @@
 import React, { useState } from 'react';
 
+function normalizeInitial(initial) {
+  return {
+    ...initial,
+    lines: (initial.lines || []).map(l => ({
+      line_number: l.line_number,
+      line_type: l.line_type,
+    })),
+    date_options: (initial.date_options || []).map((o, i) => ({
+      option_date: o.option_date || '',
+      option_time: o.option_time || '',
+      sort_order: o.sort_order != null ? o.sort_order : i,
+    })),
+  };
+}
+
 export default function MatchForm({ initial, seasons, opponents, onSave, onCancel, onAddOpponent, onCancelMatch }) {
   const isEdit = !!initial;
-  const [form, setForm] = useState(initial ? { ...initial, lines: initial.lines || [] } : {
-    season_id: '', opponent_id: '', match_date: '', match_time: '',
-    is_home: 1, away_address: '', use_custom_dates: 0, notes: '',
-    lines: []
-  });
+  const [form, setForm] = useState(
+    initial
+      ? normalizeInitial(initial)
+      : {
+          season_id: '',
+          opponent_id: '',
+          match_date: '',
+          match_time: '',
+          is_home: 1,
+          away_address: '',
+          notes: '',
+          lines: [],
+          date_options: [],
+        }
+  );
   const [newOpponent, setNewOpponent] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -24,7 +49,7 @@ export default function MatchForm({ initial, seasons, opponents, onSave, onCance
   const addLine = () => {
     const same = form.lines.filter(l => l.line_type === 'doubles');
     const next = same.length > 0 ? Math.max(...same.map(l => l.line_number)) + 1 : 1;
-    set('lines', [...form.lines, { line_number: next, line_type: 'doubles', custom_date: '', custom_time: '' }]);
+    set('lines', [...form.lines, { line_number: next, line_type: 'doubles' }]);
   };
 
   const updateLine = (idx, field, val) => {
@@ -40,6 +65,47 @@ export default function MatchForm({ initial, seasons, opponents, onSave, onCance
   };
 
   const removeLine = (idx) => set('lines', form.lines.filter((_, i) => i !== idx));
+
+  const addDateOption = () => {
+    set('date_options', [...form.date_options, { option_date: '', option_time: '' }]);
+  };
+
+  const updateDateOption = (idx, field, val) => {
+    const next = [...form.date_options];
+    next[idx] = { ...next[idx], [field]: val };
+    set('date_options', next);
+  };
+
+  const removeDateOption = (idx) => {
+    set('date_options', form.date_options.filter((_, i) => i !== idx));
+  };
+
+  const handleSubmit = () => {
+    if (!form.match_date) return;
+    const filledOptions = form.date_options.filter(o => o.option_date);
+    if (isEdit && (initial.date_options || []).length > filledOptions.length) {
+      if (!confirm('Removing date options will delete saved availability for those slots. Continue?')) return;
+    }
+    const date_options = filledOptions.map((o, i) => ({
+      option_date: o.option_date,
+      option_time: o.option_time || null,
+      sort_order: i,
+    }));
+    const {
+      season_id, opponent_id, match_date, match_time, is_home, away_address, notes, lines,
+    } = form;
+    onSave({
+      season_id,
+      opponent_id,
+      match_date,
+      match_time,
+      is_home,
+      away_address,
+      notes,
+      lines,
+      date_options,
+    });
+  };
 
   return (
     <>
@@ -97,26 +163,38 @@ export default function MatchForm({ initial, seasons, opponents, onSave, onCance
         )}
 
         <div className="form-group">
-          <label className="form-check">
-            <input type="checkbox" checked={!!form.use_custom_dates} onChange={e => {
-              const checked = e.target.checked;
-              set('use_custom_dates', checked ? 1 : 0);
-              if (checked) {
-                set('lines', form.lines.map(l => ({
-                  ...l,
-                  custom_date: l.custom_date || form.match_date || '',
-                  custom_time: l.custom_time || form.match_time || '',
-                })));
-              }
-            }} />
-            Use custom date/time per line (e.g., different courts play on different days)
-          </label>
+          <div className="flex justify-between items-center mb-2">
+            <label className="form-label" style={{ marginBottom: 0 }}>Extra date options</label>
+            <button type="button" className="btn btn-outline btn-sm" onClick={addDateOption}>Add date option</button>
+          </div>
+          <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+            Optional additional days/times for this match. Players mark availability for each; you assign a slot per line on the match page.
+          </p>
+          {form.date_options.length === 0 ? (
+            <p className="text-muted text-sm">None — only the primary match date above.</p>
+          ) : (
+            form.date_options.map((opt, idx) => (
+              <div key={idx} className="line-card" style={{ marginBottom: 10 }}>
+                <div className="flex gap-2 items-end flex-wrap">
+                  <div style={{ flex: '1 1 140px' }}>
+                    <label className="form-label">Date</label>
+                    <input className="form-control" type="date" value={opt.option_date || ''} onChange={e => updateDateOption(idx, 'option_date', e.target.value)} />
+                  </div>
+                  <div style={{ flex: '1 1 120px' }}>
+                    <label className="form-label">Time (optional)</label>
+                    <input className="form-control" type="time" value={opt.option_time || ''} onChange={e => updateDateOption(idx, 'option_time', e.target.value)} />
+                  </div>
+                  <button type="button" className="btn btn-danger btn-sm" style={{ marginBottom: 2 }} onClick={() => removeDateOption(idx)}>✕</button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16 }}>
           <div className="flex justify-between items-center mb-2">
             <span className="section-title" style={{ marginBottom: 0 }}>Lines</span>
-            <button className="btn btn-outline btn-sm" onClick={addLine}>+ Add Line</button>
+            <button type="button" className="btn btn-outline btn-sm" onClick={addLine}>+ Add Line</button>
           </div>
           {form.lines.length === 0 && <p className="text-muted text-sm">No lines. Add lines or select a season with a template.</p>}
           {[...form.lines.map((line, idx) => ({ ...line, _idx: idx }))]
@@ -138,18 +216,8 @@ export default function MatchForm({ initial, seasons, opponents, onSave, onCance
                     <option value="doubles">Doubles</option>
                   </select>
                 </div>
-                {!!form.use_custom_dates && <>
-                  <div style={{ flex: 1 }}>
-                    <label className="form-label">Date</label>
-                    <input className="form-control" type="date" value={line.custom_date || ''} onChange={e => updateLine(line._idx, 'custom_date', e.target.value)} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label className="form-label">Time</label>
-                    <input className="form-control" type="time" value={line.custom_time || ''} onChange={e => updateLine(line._idx, 'custom_time', e.target.value)} />
-                  </div>
-                </>}
                 <div style={{ flex: '0 0 auto', alignSelf: 'flex-end' }}>
-                  <button className="btn btn-danger btn-sm" onClick={() => removeLine(line._idx)}>✕</button>
+                  <button type="button" className="btn btn-danger btn-sm" onClick={() => removeLine(line._idx)}>✕</button>
                 </div>
               </div>
             </div>
@@ -175,8 +243,8 @@ export default function MatchForm({ initial, seasons, opponents, onSave, onCance
         )}
       </div>
       <div className="modal-footer">
-        <button className="btn btn-outline" onClick={onCancel}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => form.match_date && onSave(form)}>
+        <button type="button" className="btn btn-outline" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn btn-primary" onClick={handleSubmit}>
           {isEdit ? 'Update Match' : 'Create Match'}
         </button>
       </div>

@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState, useCallback } from 'react';
+import React, { useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { matches as matchesApi, players as playersApi, availability as availApi, opponents as opponentsApi } from '../api';
 import { TeamContext } from '../App';
@@ -62,9 +62,92 @@ const formatDate = (d) => {
 const formatTime = (t) => {
   if (!t) return '';
   const [h, m] = t.split(':');
-  const hour = parseInt(h);
+  const hour = parseInt(h, 10);
   return `${hour > 12 ? hour - 12 : hour || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 };
+
+function buildMatchSlots(match, dateOptions) {
+  const extras = dateOptions || [];
+  if (extras.length === 0) {
+    return [{ key: 'primary', match_date_option_id: null, date: match.match_date, time: match.match_time || null }];
+  }
+  return [
+    { key: 'primary', match_date_option_id: null, date: match.match_date, time: match.match_time || null },
+    ...extras.map(o => ({
+      key: `opt-${o.id}`,
+      match_date_option_id: o.id,
+      date: o.option_date,
+      time: o.option_time || null,
+    })),
+  ];
+}
+
+/** DB / API: 0 = no, 1 = yes, 2 = maybe */
+function availNumeric(a) {
+  const n = Number(a?.available);
+  if (n === 2) return 2;
+  if (n === 1) return 1;
+  return 0;
+}
+
+function resolveLineDateTime(line, match) {
+  if (line.match_date_option_id == null) {
+    return { date: match.match_date, time: match.match_time || null };
+  }
+  const opt = (match.date_options || []).find(o => o.id === line.match_date_option_id);
+  if (opt) return { date: opt.option_date, time: opt.option_time || null };
+  return { date: match.match_date, time: match.match_time || null };
+}
+
+function formatAvailabilitySmsDates(match) {
+  const opts = match.date_options || [];
+  if (opts.length === 0) {
+    return `📅 ${formatDate(match.match_date)}${match.match_time ? ` at ${formatTime(match.match_time)}` : ''}`;
+  }
+  const parts = [`${formatDate(match.match_date)}${match.match_time ? ` at ${formatTime(match.match_time)}` : ''} (primary)`];
+  for (const o of opts) {
+    parts.push(`${formatDate(o.option_date)}${o.option_time ? ` at ${formatTime(o.option_time)}` : ''}`);
+  }
+  return parts.join(' · ');
+}
+
+function buildLineupText(match) {
+  const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
+  const sorted = [...assignedLines].sort((a, b) => {
+    const order = t => t === 'singles' ? 0 : 1;
+    if (order(a.line_type) !== order(b.line_type)) return order(a.line_type) - order(b.line_type);
+    return (a.line_number || 0) - (b.line_number || 0);
+  });
+  const lineEntry = (l) => {
+    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}:`;
+    const names = [...new Set(l.players.map(p => p.name))].join(' & ');
+    return `${label}\n${names}`;
+  };
+  const opponent = match.opponent_name || 'TBD';
+  const headline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}` : `Lineup vs ${opponent}`;
+  const parts = [headline];
+  const hasExtras = (match.date_options || []).length > 0;
+  if (hasExtras) {
+    const groups = [];
+    const seen = new Map();
+    for (const l of sorted) {
+      const { date, time } = resolveLineDateTime(l, match);
+      const key = `${date || ''}_${time || ''}`;
+      if (!seen.has(key)) { seen.set(key, groups.length); groups.push({ date, time, lines: [l] }); }
+      else groups[seen.get(key)].lines.push(l);
+    }
+    for (const g of groups) {
+      parts.push('');
+      parts.push(`📅 ${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
+      for (const ln of g.lines) { parts.push(''); parts.push(lineEntry(ln)); }
+    }
+  } else {
+    parts.push('');
+    parts.push(`📅 ${formatDate(match.match_date)}${match.match_time ? ` at ${formatTime(match.match_time)}` : ''}`);
+    for (const l of sorted) { parts.push(''); parts.push(lineEntry(l)); }
+  }
+  return parts.join('\n');
+}
 
 // Shared icons
 const SmsIcon = ({ size = 15 }) => (
@@ -93,9 +176,29 @@ const LinkIcon = ({ size = 15 }) => (
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
   </svg>
 );
+/** Two silhouettes — line-ups / assigned players */
+const TwoPeopleIcon = ({ size = 18 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <line x1="19" y1="8" x2="19" y2="14" />
+    <line x1="22" y1="11" x2="16" y2="11" />
+  </svg>
+);
+/** Three people — same stroke language as TwoPeopleIcon (Lucide-style user silhouette ×3). */
+const GroupPeopleIcon = ({ size = 18 }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </svg>
+);
 
 // Single button → dropdown with SMS + Copy options (mobile-friendly)
-function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant }) {
+function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullWidth = false, variant, smsOptions, smsLabel = 'Text Team' }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef(null);
@@ -114,6 +217,11 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
 
   const handleSms = () => {
     onSms();
+    setOpen(false);
+  };
+
+  const handleSmsOption = (fn) => {
+    fn();
     setOpen(false);
   };
 
@@ -148,7 +256,21 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
           boxShadow: '0 4px 24px rgba(0,0,0,0.14)', border: '1px solid #e2e8f0',
           minWidth: 200, overflow: 'hidden',
         }}>
-          {hasSms && onSms && (
+          {smsOptions ? smsOptions.map((opt, i) => (
+            <button
+              key={i}
+              onClick={() => handleSmsOption(opt.handler)}
+              style={{
+                width: '100%', padding: '14px 18px', background: 'none', border: 'none',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12,
+                fontSize: '0.95rem', color: '#2d3748', textAlign: 'left',
+                borderBottom: '1px solid #f0f0f0',
+              }}
+            >
+              {opt.icon ?? <SmsIcon size={18} />}
+              {opt.label}
+            </button>
+          )) : hasSms && onSms && (
             <button
               onClick={handleSms}
               style={{
@@ -159,7 +281,7 @@ function ShareMenu({ label, onSms, onCopy, align = 'right', hasSms = true, fullW
               }}
             >
               <SmsIcon size={18} />
-              Text Team
+              {smsLabel}
             </button>
           )}
           <button
@@ -219,13 +341,20 @@ function Modal({ title, onClose, children, wide }) {
 }
 
 // Player assignment for a line
-function AssignModal({ line, allPlayers, availability, matchLines, onSave, onCancel }) {
+function AssignModal({ line, allPlayers, availability, matchLines, lineSlotOptionId, onSave, onCancel }) {
   const maxPlayers = line.line_type === 'doubles' ? 2 : 1;
   const currentIds = [...new Set(line.players.map(p => p.player_id))];
   const [selected, setSelected] = useState(currentIds);
-  const [filter, setFilter] = useState('available'); // all | available
+  const [filter, setFilter] = useState('available'); // all | available | maybe
 
-  const availableIds = new Set(availability.filter(a => a.available === 1).map(a => a.player_id));
+  const slotAvail = availability.filter(a => {
+    if (lineSlotOptionId == null || lineSlotOptionId === '') {
+      return a.match_date_option_id == null;
+    }
+    return Number(a.match_date_option_id) === Number(lineSlotOptionId);
+  });
+  const availableIds = new Set(slotAvail.filter(a => availNumeric(a) === 1).map(a => a.player_id));
+  const maybeIds = new Set(slotAvail.filter(a => availNumeric(a) === 2).map(a => a.player_id));
 
   // Players assigned to OTHER lines in this match (excluding current line's current players)
   const otherLinePlayerIds = new Set(
@@ -245,7 +374,18 @@ function AssignModal({ line, allPlayers, availability, matchLines, onSave, onCan
 
   const displayPlayers = filter === 'available'
     ? allPlayers.filter(p => availableIds.has(p.id) || otherLinePlayerIds.has(p.id))
-    : allPlayers;
+    : filter === 'maybe'
+      ? allPlayers.filter(p => maybeIds.has(p.id) || otherLinePlayerIds.has(p.id))
+      : allPlayers;
+
+  const sortedForAssign = [...displayPlayers.filter(p => p.active)].sort((a, b) => {
+    if (filter === 'all') {
+      const ma = maybeIds.has(a.id);
+      const mb = maybeIds.has(b.id);
+      if (ma !== mb) return ma ? 1 : -1;
+    }
+    return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+  });
 
   return (
     <>
@@ -255,15 +395,17 @@ function AssignModal({ line, allPlayers, availability, matchLines, onSave, onCan
           {selected.length > 0 && <span> <strong>{selected.length}/{maxPlayers} selected.</strong></span>}
         </div>
 
-        <div className="flex gap-2 mb-3">
-          <button className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilter('all')}>All Players</button>
-          <button className={`btn btn-sm ${filter === 'available' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilter('available')}>Available ({availableIds.size})</button>
+        <div className="flex gap-2 mb-3 flex-wrap">
+          <button type="button" className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilter('all')}>All Players</button>
+          <button type="button" className={`btn btn-sm ${filter === 'available' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilter('available')}>Available ({availableIds.size})</button>
+          <button type="button" className={`btn btn-sm ${filter === 'maybe' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setFilter('maybe')}>Maybe ({maybeIds.size})</button>
         </div>
 
         <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-          {displayPlayers.filter(p => p.active).map(p => {
+          {sortedForAssign.map(p => {
             const isSelected = selected.includes(p.id);
             const isAvail = availableIds.has(p.id);
+            const isMaybe = maybeIds.has(p.id);
             const isAssigned = otherLinePlayerIds.has(p.id);
             return (
               <div key={p.id} className="flex items-center gap-2 p-3 rounded border mb-2"
@@ -281,7 +423,11 @@ function AssignModal({ line, allPlayers, availability, matchLines, onSave, onCan
                 </div>
                 {isAssigned
                   ? <span className="badge badge-gray">Already Assigned</span>
-                  : isAvail && <span className="badge badge-green">Available</span>
+                  : isAvail
+                    ? <span className="badge badge-green">Available</span>
+                    : isMaybe
+                      ? <span className="badge badge-orange">Maybe</span>
+                      : null
                 }
               </div>
             );
@@ -475,95 +621,196 @@ function ScoreModal({ line, match, onSave, onCancel }) {
 }
 
 
-// 3-column availability grid with inline captain editing
+// Availability: status tabs (counts = unique players), then grouped by date slot
 function AvailabilityColumns({ match, players, matchId, onUpdate }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('available');
 
   const teamLink = `${window.location.origin}/availability/match/${matchId}`;
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name} — ` : '';
-  const matchTime = match.match_time ? ` at ${formatTime(match.match_time)}` : '';
-  const matchDesc = `${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${matchTime}`;
-
-  const byPlayer = match.availability.reduce((acc, a) => {
-    if (!acc[a.player_id]) acc[a.player_id] = { ...a };
-    else if (a.available === 1) acc[a.player_id].available = 1;
-    return acc;
-  }, {});
-  const respondedIds = new Set(Object.keys(byPlayer).map(Number));
-  const available   = Object.values(byPlayer).filter(a => a.available === 1);
-  const unavailable = Object.values(byPlayer).filter(a => a.available !== 1);
-  const noResponse  = players.filter(p => p.active && !respondedIds.has(p.id));
-
-  const setStatus = async (playerId, availableVal) => {
+  const opponent = match.opponent_name || 'TBD';
+  const headline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
+  const setStatusForSlot = async (playerId, slotOptionId, code) => {
     setSaving(true);
     try {
-      await availApi.respondForTeam(matchId, playerId, [{ match_line_id: null, available: availableVal }]);
-      onUpdate(); setEditing(null);
-    } finally { setSaving(false); }
+      await availApi.respondForTeam(matchId, playerId, [{ match_date_option_id: slotOptionId, available: code }]);
+      onUpdate();
+      setEditing(null);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const PlayerRow = ({ playerId, name }) => {
-    const isEditing = editing === playerId;
+  const slotPayload = useMemo(() => {
+    const slots = buildMatchSlots(match, match.date_options || []);
+    return slots.map((slot) => {
+      const rows = match.availability.filter(a =>
+        slot.match_date_option_id == null
+          ? a.match_date_option_id == null
+          : Number(a.match_date_option_id) === Number(slot.match_date_option_id)
+      );
+      const respondedIds = new Set(rows.map(a => a.player_id));
+      const yes = rows.filter(a => availNumeric(a) === 1);
+      const maybe = rows.filter(a => availNumeric(a) === 2);
+      const no = rows.filter(a => {
+        const v = availNumeric(a);
+        return v !== 1 && v !== 2;
+      });
+      const noResponse = players.filter(p => p.active && !respondedIds.has(p.id));
+      const slotTime = slot.time ? ` at ${formatTime(slot.time)}` : '';
+      const slotTitle = `${formatDate(slot.date)}${slotTime}${slot.key === 'primary' ? ' (primary)' : ''}`;
+      return {
+        slot,
+        rows,
+        respondedIds,
+        yes,
+        maybe,
+        no,
+        noResponse,
+        slotTitle,
+      };
+    });
+  }, [match, players]);
+
+  /** One player counted once per tab: e.g. "no response" = missing a row for any slot */
+  const tabTotals = useMemo(() => {
+    const slots = buildMatchSlots(match, match.date_options || []);
+    const active = players.filter(p => p.active);
+    const hasYes = new Set();
+    const hasNo = new Set();
+    const hasMaybe = new Set();
+    const missingAnySlot = new Set();
+
+    const rowForPlayerSlot = (playerId, slot) =>
+      match.availability.find(a =>
+        Number(a.player_id) === Number(playerId) &&
+        (slot.match_date_option_id == null
+          ? a.match_date_option_id == null
+          : Number(a.match_date_option_id) === Number(slot.match_date_option_id))
+      );
+
+    for (const p of active) {
+      for (const slot of slots) {
+        const row = rowForPlayerSlot(p.id, slot);
+        if (!row) {
+          missingAnySlot.add(p.id);
+        } else {
+          const v = availNumeric(row);
+          if (v === 1) hasYes.add(p.id);
+          if (v === 0) hasNo.add(p.id);
+          if (v === 2) hasMaybe.add(p.id);
+        }
+      }
+    }
+
+    return {
+      available: hasYes.size,
+      unavailable: hasNo.size,
+      maybe: hasMaybe.size,
+      no_response: missingAnySlot.size,
+    };
+  }, [match, players]);
+
+  /** Players with zero availability rows for this match; Remind texts only them (match-level message, all dates). */
+  const neverRespondedRemind = useMemo(() => {
+    const idsWithRow = new Set((match.availability || []).map(a => Number(a.player_id)));
+    const neverPlayers = players.filter(p => p.active && !idsWithRow.has(Number(p.id)));
+    const noResponseCells = neverPlayers.filter(p => p.cell).map(p => p.cell);
+    const datePart = formatAvailabilitySmsDates(match);
+    const remindMsg = `${headline}Mark your availability${match.team_name ? '' : ` vs ${opponent}`} — ${datePart}: ${teamLink}`;
+    return { noResponseCells, remindMsg, count: neverPlayers.length };
+  }, [match.availability, match.team_name, players, headline, opponent, teamLink]);
+
+  const tabs = [
+    { id: 'available', label: 'Available', count: tabTotals.available },
+    { id: 'unavailable', label: 'Not Available', count: tabTotals.unavailable },
+    { id: 'maybe', label: 'Maybe', count: tabTotals.maybe },
+    { id: 'no_response', label: 'No Response', count: tabTotals.no_response },
+  ];
+
+  const itemsForTab = (sp) => {
+    if (activeTab === 'available') return sp.yes;
+    if (activeTab === 'unavailable') return sp.no;
+    if (activeTab === 'maybe') return sp.maybe;
+    return sp.noResponse;
+  };
+
+  const PlayerRow = ({ slot, playerId, name }) => {
+    const editKey = `${slot.key}:${playerId}`;
+    const isEditing = editing === editKey;
     return (
       <div style={{ padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
         {isEditing ? (
           <>
-            <div className="flex gap-2" style={{ marginBottom: 4 }}>
-              <button className="btn btn-sm" style={{ background: '#27ae60', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatus(playerId, true)}>✓</button>
-              <button className="btn btn-sm" style={{ background: '#e53e3e', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatus(playerId, false)}>✕</button>
-              <button className="btn btn-outline btn-sm" style={{ minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} onClick={() => setEditing(null)}>–</button>
+            <div className="flex gap-2 flex-wrap" style={{ marginBottom: 4 }}>
+              <button type="button" className="btn btn-sm" style={{ background: '#27ae60', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatusForSlot(playerId, slot.match_date_option_id, 1)} title="Available">✓</button>
+              <button type="button" className="btn btn-sm" style={{ background: '#d69e2e', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatusForSlot(playerId, slot.match_date_option_id, 2)} title="Maybe">?</button>
+              <button type="button" className="btn btn-sm" style={{ background: '#e53e3e', color: 'white', minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} disabled={saving} onClick={() => setStatusForSlot(playerId, slot.match_date_option_id, 0)} title="Not available">✕</button>
+              <button type="button" className="btn btn-outline btn-sm" style={{ minWidth: 38, minHeight: 38, fontSize: '0.9rem' }} onClick={() => setEditing(null)}>–</button>
             </div>
             <span style={{ fontSize: '0.9rem' }}>{name}</span>
           </>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '0.9rem' }}>{name}</span>
-            <button className="btn btn-outline btn-sm" style={{ padding: '2px 8px', fontSize: '0.7rem', opacity: 0.5 }} onClick={() => setEditing(playerId)}>Edit</button>
+            <button type="button" className="btn btn-outline btn-sm" style={{ padding: '2px 8px', fontSize: '0.7rem', opacity: 0.5 }} onClick={() => setEditing(editKey)}>Edit</button>
           </div>
         )}
       </div>
     );
   };
 
-  const remindMsg = `${teamPrefix}Please mark your availability for ${matchDesc}: ${teamLink}`;
-  const noResponseCells = noResponse.filter(p => p.cell).map(p => p.cell);
-
-  const handleRemindSms = () => openGroupSms(noResponseCells, remindMsg);
-  const handleRemindCopy = () => { copyText(teamLink); };
-
-  const Col = ({ label, color, items }) => (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color, marginBottom: 8 }}>
-        {label} ({items.length})
-      </div>
-      {items.length === 0
-        ? <div className="text-muted text-sm">—</div>
-        : items.map(p => <PlayerRow key={p.player_id || p.id} playerId={p.player_id || p.id} name={p.name} />)
-      }
-    </div>
-  );
-
   return (
-    <div className="avail-cols">
-      <Col label="Available"     color="#27ae60" items={available}   />
-      <Col label="Not Available" color="#e53e3e" items={unavailable} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ marginBottom: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096' }}>
-            No Response ({noResponse.length})
-          </span>
-          {noResponse.length > 0 && (
-            <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
-              <ShareMenu label="Remind" onSms={handleRemindSms} onCopy={handleRemindCopy} hasSms={noResponseCells.length > 0} align="right" variant="yellow-outline" />
-            </div>
-          )}
-        </div>
-        {noResponse.length === 0
-          ? <div className="text-muted text-sm">—</div>
-          : noResponse.map(p => <PlayerRow key={p.id} playerId={p.id} name={p.name} />)
-        }
+    <div>
+      <div className="avail-tab-row">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            className={`btn btn-sm ${activeTab === t.id ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => setActiveTab(t.id)}
+          >
+            {t.label} ({t.count})
+          </button>
+        ))}
       </div>
+
+      {activeTab === 'no_response' && neverRespondedRemind.count > 0 && (
+        <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-end' }}>
+          <ShareMenu
+            label="Remind"
+            smsLabel="Text Non-Replies"
+            onSms={() => openGroupSms(neverRespondedRemind.noResponseCells, neverRespondedRemind.remindMsg)}
+            onCopy={() => copyText(neverRespondedRemind.remindMsg)}
+            hasSms={neverRespondedRemind.noResponseCells.length > 0}
+            align="right"
+            variant="yellow-outline"
+          />
+        </div>
+      )}
+
+      {slotPayload.map((sp) => {
+        const { slot, slotTitle } = sp;
+        const list = itemsForTab(sp);
+        return (
+          <div key={slot.key} className="avail-slot-section">
+            <div className="avail-slot-header">{slotTitle}</div>
+            <div className="avail-slot-body">
+              {list.length === 0
+                ? <div className="text-muted text-sm" style={{ padding: '4px 0' }}>—</div>
+                : list.map(p => (
+                  <PlayerRow
+                    key={p.player_id || p.id}
+                    slot={slot}
+                    playerId={p.player_id || p.id}
+                    name={p.name}
+                  />
+                ))
+              }
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -573,41 +820,8 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
   const [copied, setCopied] = useState(false);
   const [textSent, setTextSent] = useState(false);
 
+  const lineupText = buildLineupText(match);
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
-
-  const lineLabel = (l) => {
-    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}`;
-    return `${label}: ${[...new Set(l.players.map(p => p.name))].join(' & ')}`;
-  };
-
-  let lineupText;
-  if (match.use_custom_dates) {
-    const groups = [];
-    const seen = new Map();
-    for (const l of assignedLines) {
-      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
-      if (!seen.has(key)) {
-        seen.set(key, groups.length);
-        groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] });
-      } else {
-        groups[seen.get(key)].lines.push(l);
-      }
-    }
-    const parts = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'}:`];
-    for (const g of groups) {
-      const dateLabel = g.date ? formatDate(g.date) : 'Date TBD';
-      const timeLabel = g.time ? ` at ${formatTime(g.time)}` : '';
-      parts.push(`\n${dateLabel}${timeLabel}`);
-      for (const l of g.lines) parts.push(`  ${lineLabel(l)}`);
-    }
-    lineupText = parts.join('\n');
-  } else {
-    lineupText = [
-      `${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`,
-      ...assignedLines.map(lineLabel),
-    ].join('\n');
-  }
 
   const copyLineup = () => {
     copyText(lineupText).then(() => {
@@ -691,7 +905,8 @@ function AssignmentNotifyModal({ match, messages, onClose }) {
   );
 }
 
-function LineCard({ line, allPlayers, availability, matchId, match, onAssign, onScore, onLineUpdate, useCustomDates }) {
+function LineCard({ line, allPlayers, matchId, match, onAssign, onScore, onLineSlotChange, hasMultiDateOptions }) {
+  const [slotSaving, setSlotSaving] = useState(false);
   const getScoreSummary = (score) => {
     if (!score) return null;
     const sets = [];
@@ -701,14 +916,16 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
     return sets.join(', ');
   };
 
-  // Build reminder message for assigned players in this line
   const assignedDetails = line.players.map(p => allPlayers.find(ap => ap.id === p.player_id)).filter(Boolean);
   const lineCells = assignedDetails.map(p => p.cell).filter(Boolean);
   const lineLabel = `${line.line_type.charAt(0).toUpperCase() + line.line_type.slice(1)} Line ${line.line_number}`;
-  const lineDate = useCustomDates && line.custom_date ? line.custom_date : match?.match_date;
-  const lineTime = useCustomDates && line.custom_time ? line.custom_time : match?.match_time;
-  const teamPrefix = match?.team_name ? `🎾 ${match.team_name}\n\n` : '';
-  const reminderMsg = `${teamPrefix}Reminder: You're playing ${lineLabel} vs ${match?.opponent_name || 'TBD'} on ${lineDate ? formatDate(lineDate) : 'TBD'}${lineTime ? ` at ${formatTime(lineTime)}` : ''}.`;
+  const { date: lineDate, time: lineTime } = resolveLineDateTime(line, match);
+  const opp = match?.opponent_name || 'TBD';
+  const reminderHeadline = match?.team_name ? `🎾 ${match.team_name} vs ${opp}\n\n` : '';
+  const whenPart = `📅 ${lineDate ? formatDate(lineDate) : 'TBD'}${lineTime ? ` at ${formatTime(lineTime)}` : ''}`;
+  const reminderMsg = match?.team_name
+    ? `${reminderHeadline}Reminder: You're playing ${lineLabel} on ${whenPart}.`
+    : `${reminderHeadline}Reminder: You're playing ${lineLabel} vs ${opp} on ${whenPart}.`;
 
   const handleReminderSms = () => openGroupSms(lineCells, reminderMsg);
   const handleReminderCopy = () => copyText(reminderMsg);
@@ -716,11 +933,41 @@ function LineCard({ line, allPlayers, availability, matchId, match, onAssign, on
   const today = new Date().toISOString().slice(0, 10);
   const isMatchDay = lineDate && lineDate <= today;
 
+  const handlePlayOnChange = async (e) => {
+    const v = e.target.value;
+    const optId = v === '' ? null : parseInt(v, 10);
+    setSlotSaving(true);
+    try {
+      await matchesApi.updateLine(matchId, line.id, { match_date_option_id: Number.isFinite(optId) ? optId : null });
+      onLineSlotChange?.();
+    } finally {
+      setSlotSaving(false);
+    }
+  };
+
   return (
     <div className="line-card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-      {/* Left: title, date, players, score — all stacked tightly */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>{lineLabel}</div>
+        {hasMultiDateOptions && (
+          <div className="form-group" style={{ marginBottom: 8 }}>
+            <label className="form-label" style={{ fontSize: '0.75rem' }}>Play on</label>
+            <select
+              className="form-control"
+              style={{ fontSize: '0.9rem' }}
+              value={line.match_date_option_id == null ? '' : String(line.match_date_option_id)}
+              disabled={slotSaving}
+              onChange={handlePlayOnChange}
+            >
+              <option value="">Primary — {formatDate(match.match_date)}{match.match_time ? ` · ${formatTime(match.match_time)}` : ''}</option>
+              {(match.date_options || []).map(o => (
+                <option key={o.id} value={String(o.id)}>
+                  {formatDate(o.option_date)}{o.option_time ? ` · ${formatTime(o.option_time)}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {(lineDate || lineTime) && (
           <div className="text-muted text-sm" style={{ marginBottom: 6 }}>
             {lineDate ? formatDate(lineDate) : 'No date set'}
@@ -811,7 +1058,8 @@ export default function MatchDetail() {
   };
 
   const handleStatusChange = async (status) => {
-    await matchesApi.update(id, { ...match, status, lines: undefined });
+    const { availability: _a, lines: _l, date_options: _d, ...safe } = match;
+    await matchesApi.update(id, { ...safe, status });
     load();
   };
 
@@ -830,38 +1078,20 @@ export default function MatchDetail() {
 
   const dateStr = formatDate(match.match_date);
   const timeStr = match.match_time ? formatTime(match.match_time) : '';
+  const hasMultiDateOptions = (match.date_options || []).length > 0;
 
-  const availableCount = new Set(match.availability.filter(a => a.available === 1).map(a => a.player_id)).size;
+  const availableCount = new Set(match.availability.filter(a => availNumeric(a) === 1).map(a => a.player_id)).size;
+  const maybeCount = new Set(match.availability.filter(a => availNumeric(a) === 2).map(a => a.player_id)).size;
   const respondedCount = new Set(match.availability.map(a => a.player_id)).size;
 
   const teamLink = `${window.location.origin}/availability/match/${id}`;
-  const teamPrefix = match.team_name ? `🎾 ${match.team_name}\n\n` : '';
-  const availSmsBody = `${teamPrefix}Mark your availability for our match vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${timeStr ? ` at ${timeStr}` : ''}: ${teamLink}`;
+  const opponent = match.opponent_name || 'TBD';
+  const availHeadline = match.team_name ? `🎾 ${match.team_name} vs ${opponent}\n\n` : '';
+  const datePart = formatAvailabilitySmsDates(match);
+  const availSmsBody = `${availHeadline}Mark your availability${match.team_name ? '' : ` vs ${opponent}`} — ${datePart}: ${teamLink}`;
 
-  // Build lineup text (same logic as AssignmentNotifyModal)
+  const lineupText = buildLineupText(match);
   const assignedLines = (match.lines || []).filter(l => l.players.length > 0);
-  const lineLabel = (l) => {
-    const label = `${l.line_type === 'doubles' ? 'Doubles' : 'Singles'} Line ${l.line_number}`;
-    return `${label}: ${[...new Set(l.players.map(p => p.name))].join(' & ')}`;
-  };
-  let lineupText;
-  if (match.use_custom_dates) {
-    const groups = [];
-    const seen = new Map();
-    for (const l of assignedLines) {
-      const key = `${l.custom_date || ''}_${l.custom_time || ''}`;
-      if (!seen.has(key)) { seen.set(key, groups.length); groups.push({ date: l.custom_date, time: l.custom_time, lines: [l] }); }
-      else groups[seen.get(key)].lines.push(l);
-    }
-    const parts = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'}:`];
-    for (const g of groups) {
-      parts.push(`\n${g.date ? formatDate(g.date) : 'Date TBD'}${g.time ? ` at ${formatTime(g.time)}` : ''}`);
-      for (const l of g.lines) parts.push(`  ${lineLabel(l)}`);
-    }
-    lineupText = parts.join('\n');
-  } else {
-    lineupText = [`${teamPrefix}Lineup vs ${match.opponent_name || 'TBD'} on ${formatDate(match.match_date)}${match.match_time ? ' at ' + formatTime(match.match_time) : ''}:`, ...assignedLines.map(lineLabel)].join('\n');
-  }
 
   const allActiveCells = players.filter(p => p.active && p.cell).map(p => p.cell);
   const assignedLineCells = [...new Set(
@@ -870,6 +1100,7 @@ export default function MatchDetail() {
 
   const handleTextTeamAvail = () => openGroupSms(allActiveCells, availSmsBody);
   const handleTextLineup = () => openGroupSms(assignedLineCells, lineupText);
+  const handleTextTeamLineup = () => openGroupSms(allActiveCells, lineupText);
 
   const handleCopyLineup = () => {
     copyText(lineupText);
@@ -894,7 +1125,18 @@ export default function MatchDetail() {
               {match.season_name && <span className="badge badge-gray">{match.season_name}</span>}
             </div>
             <div style={{ fontSize: '1.05rem', marginBottom: 4 }}>
-              {dateStr}{timeStr ? ` at ${timeStr}` : ''}
+              {hasMultiDateOptions ? (
+                <>
+                  <div>{dateStr}{timeStr ? ` at ${timeStr}` : ''} <span className="text-muted text-sm">(primary)</span></div>
+                  <ul className="text-muted text-sm" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {(match.date_options || []).map(o => (
+                      <li key={o.id}>{formatDate(o.option_date)}{o.option_time ? ` at ${formatTime(o.option_time)}` : ''}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <>{dateStr}{timeStr ? ` at ${timeStr}` : ''}</>
+              )}
             </div>
             {!match.is_home && match.away_address && (
               <div className="text-muted text-sm">📍 {match.away_address}</div>
@@ -942,7 +1184,7 @@ export default function MatchDetail() {
             <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="card-title">Player Availability</div>
-                <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available</div>
+                <div className="text-muted text-sm">{respondedCount} responded · {availableCount} available · {maybeCount} maybe</div>
                 <a href={teamLink} target="_blank" rel="noopener noreferrer" className="text-sm" style={{ color: '#3182ce', wordBreak: 'break-all' }}>{teamLink}</a>
               </div>
               <ShareMenu label="Request Availability" onSms={handleTextTeamAvail} onCopy={handleCopyTeamLink} variant="yellow" />
@@ -961,7 +1203,15 @@ export default function MatchDetail() {
         <div className="card">
           <div className="card-header">
             <div className="card-title">Lines & Assignments</div>
-            <ShareMenu label="Send Line-ups" onSms={handleTextLineup} onCopy={handleCopyLineup} variant="yellow" />
+            <ShareMenu
+              label="Send Line-ups"
+              smsOptions={[
+                { label: 'Send to Lines', handler: handleTextLineup, icon: <TwoPeopleIcon size={18} /> },
+                { label: 'Send to Team', handler: handleTextTeamLineup, icon: <GroupPeopleIcon size={18} /> },
+              ]}
+              onCopy={handleCopyLineup}
+              variant="yellow"
+            />
           </div>
           {match.lines.length === 0 ? (
             <p className="text-muted text-sm">No lines configured for this match.</p>
@@ -975,12 +1225,12 @@ export default function MatchDetail() {
                 key={line.id}
                 line={line}
                 allPlayers={players}
-                availability={match.availability}
                 matchId={id}
                 match={match}
                 onAssign={handleAssign}
                 onScore={handleScore}
-                useCustomDates={match.use_custom_dates}
+                hasMultiDateOptions={hasMultiDateOptions}
+                onLineSlotChange={load}
               />
             ))
           )}
@@ -995,6 +1245,7 @@ export default function MatchDetail() {
             allPlayers={players}
             availability={match.availability}
             matchLines={match.lines}
+            lineSlotOptionId={selectedLine.match_date_option_id}
             onSave={handleSaveAssignment}
             onCancel={() => setModal(null)}
           />
